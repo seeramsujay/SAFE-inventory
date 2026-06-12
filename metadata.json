@@ -1,0 +1,6 @@
+{
+  "name": "Industrial Nexus",
+  "description": "High-visibility tablet terminal and administrative controller for modern industrial environments.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

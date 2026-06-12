@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Customs for steel plate lines & glow effects */
+  .glow-border {
+    box-shadow: 0 0 15px rgba(0, 240, 255, 0.15);
+  }
+  .glow-text-cyan {
+    text-shadow: 0 0 8px rgba(0, 240, 255, 0.5);
+  }
+  .glow-text-orange {
+    text-shadow: 0 0 8px rgba(255, 107, 0, 0.5);
+  }
+  .glow-text-red {
+    text-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+  }
+  .glow-text-success {
+    text-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+  }
+}
