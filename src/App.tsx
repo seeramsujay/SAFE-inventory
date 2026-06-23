@@ -26,6 +26,11 @@ import {
 } from 'lucide-react';
 
 // Interfaces mirroring the Android Room schema
+interface IngredientRatio {
+  ingredientId: string;
+  percentage: number;
+}
+
 interface Product {
   id: string;
   name: string; // Hindi Name
@@ -34,6 +39,7 @@ interface Product {
   colorHex: string;
   isActive: boolean;
   manualFileName?: string;
+  ingredients?: IngredientRatio[];
 }
 
 interface BatchLog {
@@ -61,16 +67,79 @@ interface Order {
   line?: string;
 }
 
+interface InventoryItem {
+  id: string;
+  name: string;
+  hindiName: string;
+  type: 'raw_material' | 'finished_good';
+  stock: number;
+  unit: string;
+  minStock: number;
+}
+
 // Initial Data mirroring IndustrialRepository.kt
 const INITIAL_PRODUCTS: Product[] = [
-  { id: "PRD-001", name: "क्रीम स्पेशल", englishName: "Cream Special", targetUph: 1200, colorHex: "#00F0FF", isActive: true, manualFileName: "Cream_Special_Ops_v2.pdf" },
-  { id: "PRD-002", name: "प्रीमियम प्लस", englishName: "Premium Plus", targetUph: 850, colorHex: "#FF6B00", isActive: true, manualFileName: "Premium_Plus_Safety.pdf" },
-  { id: "PRD-003", name: "मानक मिश्रण", englishName: "Standard Blend", targetUph: 2500, colorHex: "#10B981", isActive: true }
+  { 
+    id: "PRD-001", 
+    name: "क्रीम स्पेशल", 
+    englishName: "Cream Special", 
+    targetUph: 1200, 
+    colorHex: "#00F0FF", 
+    isActive: true, 
+    manualFileName: "Cream_Special_Ops_v2.pdf",
+    ingredients: [
+      { ingredientId: "ING-001", percentage: 60 },
+      { ingredientId: "ING-002", percentage: 20 },
+      { ingredientId: "ING-003", percentage: 15 },
+      { ingredientId: "ING-004", percentage: 5 }
+    ]
+  },
+  { 
+    id: "PRD-002", 
+    name: "प्रीमियम प्लस", 
+    englishName: "Premium Plus", 
+    targetUph: 850, 
+    colorHex: "#FF6B00", 
+    isActive: true, 
+    manualFileName: "Premium_Plus_Safety.pdf",
+    ingredients: [
+      { ingredientId: "ING-001", percentage: 50 },
+      { ingredientId: "ING-002", percentage: 25 },
+      { ingredientId: "ING-003", percentage: 15 },
+      { ingredientId: "ING-004", percentage: 5 },
+      { ingredientId: "ING-005", percentage: 5 }
+    ]
+  },
+  { 
+    id: "PRD-003", 
+    name: "मानक मिश्रण", 
+    englishName: "Standard Blend", 
+    targetUph: 2500, 
+    colorHex: "#10B981", 
+    isActive: true,
+    ingredients: [
+      { ingredientId: "ING-001", percentage: 70 },
+      { ingredientId: "ING-002", percentage: 20 },
+      { ingredientId: "ING-003", percentage: 10 }
+    ]
+  }
 ];
 
 const INITIAL_LOGS: BatchLog[] = [
   { batchId: "ORD-1001", productNameHindi: "क्रीम स्पेशल", productNameEnglish: "Cream Special", line: "Line A", unitsProduced: 5000, status: "Success", timestamp: Date.now() - 3 * 3600000, targetUnits: 5000 },
   { batchId: "ORD-1002", productNameHindi: "प्रीमियम प्लस", productNameEnglish: "Premium Plus", line: "Line B", unitsProduced: 2500, status: "Success", timestamp: Date.now() - 1.5 * 3600000, targetUnits: 2500 }
+];
+
+const INITIAL_INVENTORY: InventoryItem[] = [
+  { id: "ING-001", name: "Wheat Flour", hindiName: "गेंहू का आटा", type: 'raw_material', stock: 12500, unit: "kg", minStock: 2000 },
+  { id: "ING-002", name: "Refined Sugar", hindiName: "चीनी", type: 'raw_material', stock: 5400, unit: "kg", minStock: 1000 },
+  { id: "ING-003", name: "Vegetable Fats", hindiName: "वनस्पति वसा", type: 'raw_material', stock: 3200, unit: "kg", minStock: 800 },
+  { id: "ING-004", name: "Cream Flavoring", hindiName: "क्रीम फ्लेवर", type: 'raw_material', stock: 650, unit: "kg", minStock: 150 },
+  { id: "ING-005", name: "Premium Additive", hindiName: "प्रीमियम एडिटिव", type: 'raw_material', stock: 450, unit: "kg", minStock: 100 },
+  
+  { id: "FIN-001", name: "Cream Special", hindiName: "क्रीम स्पेशल", type: 'finished_good', stock: 4, unit: "batches", minStock: 2 },
+  { id: "FIN-002", name: "Premium Plus", hindiName: "प्रीमियम प्लस", type: 'finished_good', stock: 2, unit: "batches", minStock: 1 },
+  { id: "FIN-003", name: "Standard Blend", hindiName: "मानक मिश्रण", type: 'finished_good', stock: 0, unit: "batches", minStock: 1 }
 ];
 
 const INITIAL_ORDERS: Order[] = [
@@ -108,7 +177,16 @@ export default function App() {
   });
 
   // Navigation state (Active tab on admin dashboard)
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'logs' | 'link-integration'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'logs' | 'link-integration' | 'inventory'>('dashboard');
+
+  // Inventory Management State
+  const [inventory, setInventory] = useState<InventoryItem[]>(() => {
+    const cached = localStorage.getItem('nexus_inventory');
+    return cached ? JSON.parse(cached) : INITIAL_INVENTORY;
+  });
+
+  // State for ingredient ratio editor (keys are ingredientId, values are percentages)
+  const [recipeIngredients, setRecipeIngredients] = useState<{[key: string]: number}>({});
 
   // Preset recipe order form states
   const [selectedProductId, setSelectedProductId] = useState<string>(products[0]?.id || 'PRD-001');
@@ -157,6 +235,10 @@ export default function App() {
     localStorage.setItem('nexus_orders', JSON.stringify(orders));
   }, [orders]);
 
+  useEffect(() => {
+    localStorage.setItem('nexus_inventory', JSON.stringify(inventory));
+  }, [inventory]);
+
   // Handle live clock update
   useEffect(() => {
     const timer = setInterval(() => {
@@ -176,6 +258,9 @@ export default function App() {
       }
       if (e.key === 'nexus_products' && e.newValue) {
         setProducts(JSON.parse(e.newValue));
+      }
+      if (e.key === 'nexus_inventory' && e.newValue) {
+        setInventory(JSON.parse(e.newValue));
       }
       if (e.key === 'nexus_worker_token') {
         setWorkerToken(e.newValue);
@@ -197,6 +282,75 @@ export default function App() {
     }, 1000);
     return () => clearInterval(interval);
   }, [workerToken]);
+
+  // Process inventory deduction/updating for a success log
+  const deductInventoryForLog = (log: BatchLog, currentProducts: Product[]) => {
+    setInventory(prevInv => {
+      const product = currentProducts.find(
+        p => p.englishName.toLowerCase() === log.productNameEnglish.toLowerCase()
+      );
+      if (!product) return prevInv;
+      
+      const batches = log.unitsProduced / 1250;
+      
+      return prevInv.map(item => {
+        // 1. Output inventory increase
+        if (item.type === 'finished_good' && item.name.toLowerCase() === product.englishName.toLowerCase()) {
+          return { ...item, stock: Number((item.stock + batches).toFixed(2)) };
+        }
+        
+        // 2. Input inventory decrease
+        if (item.type === 'raw_material' && product.ingredients) {
+          const ratio = product.ingredients.find(r => r.ingredientId === item.id);
+          if (ratio) {
+            const consumed = 1000 * batches * (ratio.percentage / 100);
+            return { ...item, stock: Math.max(0, Number((item.stock - consumed).toFixed(2))) };
+          }
+        }
+        return item;
+      });
+    });
+  };
+
+  // Poll API logs from the dev server backend
+  useEffect(() => {
+    const fetchApiLogs = async () => {
+      try {
+        const response = await fetch('/api/logs');
+        if (response.ok) {
+          const apiLogs: BatchLog[] = await response.json();
+          if (apiLogs && apiLogs.length > 0) {
+            setLogs(currentLogs => {
+              const merged = [...currentLogs];
+              let updated = false;
+              apiLogs.forEach(apiLog => {
+                if (!merged.some(l => l.batchId === apiLog.batchId)) {
+                  merged.push(apiLog);
+                  updated = true;
+                  // If successfully processed, update inventory
+                  if (apiLog.status === 'Success') {
+                    deductInventoryForLog(apiLog, products);
+                  }
+                }
+              });
+              if (updated) {
+                merged.sort((a, b) => b.timestamp - a.timestamp);
+                localStorage.setItem('nexus_logs', JSON.stringify(merged));
+                return merged;
+              }
+              return currentLogs;
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch API logs:", err);
+      }
+    };
+
+    fetchApiLogs();
+    const interval = setInterval(fetchApiLogs, 1500);
+    return () => clearInterval(interval);
+  }, [products]);
 
   // Calculate time since the last batch update
   useEffect(() => {
@@ -283,6 +437,11 @@ export default function App() {
       setOrders(clearedOrders);
       localStorage.setItem('nexus_logs', JSON.stringify([]));
       localStorage.setItem('nexus_orders', JSON.stringify(clearedOrders));
+      // Reset inventory back to initial default stock levels
+      setInventory(INITIAL_INVENTORY);
+      localStorage.setItem('nexus_inventory', JSON.stringify(INITIAL_INVENTORY));
+      // Call reset endpoint on server
+      fetch('/api/reset', { method: 'POST' }).catch(err => console.error("Failed to reset api logs:", err));
     }
   };
 
@@ -292,9 +451,13 @@ export default function App() {
       setProducts(INITIAL_PRODUCTS);
       setLogs(INITIAL_LOGS);
       setOrders(INITIAL_ORDERS);
+      setInventory(INITIAL_INVENTORY);
       localStorage.setItem('nexus_products', JSON.stringify(INITIAL_PRODUCTS));
       localStorage.setItem('nexus_logs', JSON.stringify(INITIAL_LOGS));
       localStorage.setItem('nexus_orders', JSON.stringify(INITIAL_ORDERS));
+      localStorage.setItem('nexus_inventory', JSON.stringify(INITIAL_INVENTORY));
+      // Call reseed endpoint on server
+      fetch('/api/reseed', { method: 'POST' }).catch(err => console.error("Failed to reseed api logs:", err));
       alert("Database variables restored to initial setup.");
     }
   };
@@ -316,6 +479,16 @@ export default function App() {
       return;
     }
 
+    const ingredientsArray = Object.entries(recipeIngredients)
+      .filter(([_, percentage]) => percentage > 0)
+      .map(([ingredientId, percentage]) => ({ ingredientId, percentage }));
+
+    const totalPercentage = Object.values(recipeIngredients).reduce((sum, val) => sum + val, 0);
+    if (totalPercentage !== 100) {
+      alert(`VALIDATION FAILED: Ingredients total ratio must sum to exactly 100%. Current sum: ${totalPercentage}%`);
+      return;
+    }
+
     let updatedProducts;
     if (editingProduct) {
       updatedProducts = products.map(p => p.id === editingProduct.id ? {
@@ -324,7 +497,8 @@ export default function App() {
         englishName: newProductEnglishName,
         targetUph: newProductTargetUph,
         colorHex: newProductColor,
-        manualFileName: newProductManual || undefined
+        manualFileName: newProductManual || undefined,
+        ingredients: ingredientsArray
       } : p);
       setProducts(updatedProducts);
       setEditingProduct(null);
@@ -340,7 +514,8 @@ export default function App() {
         targetUph: newProductTargetUph,
         colorHex: newProductColor,
         isActive: true,
-        manualFileName: newProductManual || undefined
+        manualFileName: newProductManual || undefined,
+        ingredients: ingredientsArray
       };
       updatedProducts = [...products, newItem];
       setProducts(updatedProducts);
@@ -364,6 +539,15 @@ export default function App() {
     setNewProductTargetUph(p.targetUph);
     setNewProductColor(p.colorHex);
     setNewProductManual(p.manualFileName || '');
+
+    // Set ingredients ratios from product or empty object
+    const ingredientMap: {[key: string]: number} = {};
+    INITIAL_INVENTORY.filter(item => item.type === 'raw_material').forEach(ing => {
+      const match = p.ingredients?.find(ri => ri.ingredientId === ing.id);
+      ingredientMap[ing.id] = match ? match.percentage : 0;
+    });
+    setRecipeIngredients(ingredientMap);
+
     setShowAddProductModal(true);
   };
 
@@ -420,7 +604,12 @@ export default function App() {
     setOrders(updatedOrders);
     localStorage.setItem('nexus_orders', JSON.stringify(updatedOrders));
 
-    // 3. Clear active states
+    // 3. Deduct/update inventory
+    if (status === 'Success') {
+      deductInventoryForLog(newLog, products);
+    }
+
+    // 4. Clear active states
     setActiveWorkerOrderId(null);
     setWorkerUnitsProducedInput(0);
   };
@@ -814,6 +1003,16 @@ export default function App() {
               📜 Log Vault ({logs.length})
             </button>
             <button
+              onClick={() => setActiveTab('inventory')}
+              className={`px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all ${
+                activeTab === 'inventory'
+                  ? 'bg-industrial-accent text-black border-industrial-accent font-bold shadow-md shadow-industrial-accent/20'
+                  : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
+              }`}
+            >
+              🌾 Inventory Management
+            </button>
+            <button
               onClick={() => setActiveTab('link-integration')}
               className={`px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all ${
                 activeTab === 'link-integration'
@@ -1178,6 +1377,11 @@ export default function App() {
                   setNewProductTargetUph(1200);
                   setNewProductColor("#00F0FF");
                   setNewProductManual("");
+                  const ingredientMap: {[key: string]: number} = {};
+                  INITIAL_INVENTORY.filter(item => item.type === 'raw_material').forEach(ing => {
+                    ingredientMap[ing.id] = 0;
+                  });
+                  setRecipeIngredients(ingredientMap);
                   setShowAddProductModal(true);
                 }}
                 className="bg-industrial-accent text-black hover:bg-cyan-500 font-mono font-bold text-xs px-4 py-2 rounded flex items-center gap-2 transition ml-auto"
@@ -1378,6 +1582,168 @@ export default function App() {
                 </table>
               </div>
 
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3.5: INVENTORY MANAGEMENT */}
+        {activeTab === 'inventory' && (
+          <div className="flex flex-col gap-6 animate-in fade-in duration-200">
+            <div className="bg-[#12151C] border-2 border-industrial-border p-6 rounded-xl shadow-lg">
+              <h2 className="text-lg font-black text-white uppercase font-display flex items-center gap-2">
+                <Layers className="h-6 w-6 text-industrial-accent" />
+                Raw Materials & Finished Goods Inventory
+              </h2>
+              <p className="text-xs text-gray-400 font-mono mt-0.5">
+                Real-time tracking of raw material inputs consumed and finished output batches registered.
+              </p>
+            </div>
+
+            {/* Quick stock adjustment form */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Input Raw Materials */}
+              <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded-xl flex flex-col gap-4 shadow-lg">
+                <h3 className="text-sm font-bold text-white font-mono tracking-widest uppercase text-industrial-accent border-b border-industrial-border pb-2">
+                  🌾 Input Raw Materials (Consumables)
+                </h3>
+                <div className="flex flex-col gap-4">
+                  {inventory.filter(item => item.type === 'raw_material').map(item => {
+                    const pct = Math.min(100, (item.stock / 20000) * 100);
+                    const isLow = item.stock < item.minStock;
+                    return (
+                      <div key={item.id} className="bg-[#0B0D10] border border-industrial-border p-4 rounded-lg flex flex-col gap-2">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <div className="font-bold text-white text-sm">{item.name}</div>
+                            <div className="text-xs text-gray-500">{item.hindiName} ({item.id})</div>
+                          </div>
+                          <div className="text-right">
+                            <div className={`font-mono text-sm font-bold ${isLow ? 'text-industrial-safety font-black' : 'text-[#A8FF60]'}`}>
+                              {item.stock.toLocaleString()} {item.unit}
+                            </div>
+                            {isLow && (
+                              <span className="inline-block text-[9px] font-mono font-bold bg-industrial-safety/20 text-industrial-safety border border-industrial-safety/30 px-1.5 py-0.5 rounded mt-0.5 uppercase">
+                                Low Stock Alert
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Progress bar */}
+                        <div className="w-full bg-gray-800 h-2 rounded-full overflow-hidden mt-1">
+                          <div 
+                            className={`h-full rounded-full transition-all duration-300 ${isLow ? 'bg-industrial-safety' : 'bg-industrial-accent'}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+
+                        {/* Restock action */}
+                        <div className="flex justify-end gap-2 mt-2">
+                          <button
+                            onClick={() => {
+                              setInventory(prev => prev.map(i => i.id === item.id ? { ...i, stock: Number((i.stock + 1000).toFixed(2)) } : i));
+                            }}
+                            className="bg-gray-900 hover:bg-gray-800 text-white font-mono text-[10px] px-3 py-1 rounded transition border border-gray-700"
+                          >
+                            +1,000 kg Restock
+                          </button>
+                          <button
+                            onClick={() => {
+                              setInventory(prev => prev.map(i => i.id === item.id ? { ...i, stock: Number((i.stock + 5000).toFixed(2)) } : i));
+                            }}
+                            className="bg-gray-900 hover:bg-gray-800 text-white font-mono text-[10px] px-3 py-1 rounded transition border border-gray-700"
+                          >
+                            +5,000 kg Restock
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Output Finished Goods */}
+              <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded-xl flex flex-col gap-4 shadow-lg">
+                <h3 className="text-sm font-bold text-white font-mono tracking-widest uppercase text-industrial-success border-b border-industrial-border pb-2">
+                  📦 Output Finished Goods (Produced)
+                </h3>
+                <div className="flex flex-col gap-4">
+                  {inventory.filter(item => item.type === 'finished_good').map(item => {
+                    return (
+                      <div key={item.id} className="bg-[#0B0D10] border border-industrial-border p-4 rounded-lg flex flex-col gap-2">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <div className="font-bold text-white text-sm">{item.name}</div>
+                            <div className="text-xs text-gray-500">{item.hindiName} ({item.id})</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-mono text-sm font-bold text-industrial-success">
+                              {item.stock.toFixed(2)} {item.unit}
+                            </div>
+                            <div className="text-[10px] text-gray-500 font-mono mt-0.5">
+                              (= {(item.stock * 1250).toLocaleString()} units)
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Ship/Dispatch actions */}
+                        <div className="flex justify-end gap-2 mt-2">
+                          <button
+                            disabled={item.stock < 1}
+                            onClick={() => {
+                              setInventory(prev => prev.map(i => i.id === item.id ? { ...i, stock: Math.max(0, Number((i.stock - 1).toFixed(2))) } : i));
+                            }}
+                            className="bg-gray-900 hover:bg-gray-800 disabled:opacity-40 text-white font-mono text-[10px] px-3 py-1 rounded transition border border-gray-700"
+                          >
+                            Dispatch 1 Batch
+                          </button>
+                          <button
+                            disabled={item.stock < 5}
+                            onClick={() => {
+                              setInventory(prev => prev.map(i => i.id === item.id ? { ...i, stock: Math.max(0, Number((i.stock - 5).toFixed(2))) } : i));
+                            }}
+                            className="bg-gray-900 hover:bg-gray-800 disabled:opacity-40 text-white font-mono text-[10px] px-3 py-1 rounded transition border border-gray-700"
+                          >
+                            Dispatch 5 Batches
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Ingredients ratio quick reference */}
+            <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded-xl shadow-lg flex flex-col gap-4">
+              <h3 className="text-sm font-bold text-white font-mono tracking-widest uppercase text-industrial-accent border-b border-industrial-border pb-2">
+                📋 ACTIVE FORMULA RATIOS QUICK REFERENCE
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {products.map(p => (
+                  <div key={p.id} className="bg-[#0B0D10] border border-industrial-border p-4 rounded-lg flex flex-col gap-2">
+                    <div className="flex items-center justify-between border-b border-gray-800 pb-1">
+                      <span className="font-bold text-white text-xs">{p.englishName}</span>
+                      <span className="text-[9px] font-mono px-2 py-0.5 rounded" style={{ backgroundColor: p.colorHex + '20', color: p.colorHex, border: `1px solid ${p.colorHex}40` }}>{p.id}</span>
+                    </div>
+                    <div className="flex flex-col gap-1 text-[10px] font-mono text-gray-400">
+                      {p.ingredients && p.ingredients.length > 0 ? (
+                        p.ingredients.map(ing => {
+                          const itemDetail = inventory.find(i => i.id === ing.ingredientId);
+                          return (
+                            <div key={ing.ingredientId} className="flex justify-between">
+                              <span>{itemDetail?.name || ing.ingredientId}:</span>
+                              <span className="text-white font-bold">{ing.percentage}%</span>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <span className="text-gray-600 italic">No ratios registered</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -1604,6 +1970,53 @@ export default function App() {
                   onChange={(e) => setNewProductManual(e.target.value)}
                   className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 focus:border-industrial-accent outline-none font-mono"
                 />
+              </div>
+
+              {/* Interactive Ingredient Ratios Section */}
+              <div className="bg-[#0B0D10] border border-industrial-border p-4 rounded flex flex-col gap-3">
+                <div className="flex justify-between items-center border-b border-industrial-border pb-1">
+                  <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">
+                    INGREDIENT MIXTURE RATIOS:
+                  </span>
+                  <span className={`font-mono text-xs font-bold ${
+                    Object.values(recipeIngredients).reduce((sum, v) => sum + v, 0) === 100
+                      ? 'text-industrial-success font-black'
+                      : 'text-industrial-safety font-black'
+                  }`}>
+                    TOTAL: {Object.values(recipeIngredients).reduce((sum, v) => sum + v, 0)}%
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  {INITIAL_INVENTORY.filter(item => item.type === 'raw_material').map(ing => {
+                    const currentVal = recipeIngredients[ing.id] || 0;
+                    return (
+                      <div key={ing.id} className="flex flex-col gap-1">
+                        <div className="flex justify-between items-center text-[10px]">
+                          <span className="text-white font-bold">{ing.name} ({ing.hindiName})</span>
+                          <span className="text-industrial-accent font-mono font-bold">{currentVal}%</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="5"
+                            value={currentVal}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              setRecipeIngredients(prev => ({
+                                ...prev,
+                                [ing.id]: val
+                              }));
+                            }}
+                            className="flex-1 h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-industrial-accent"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               <button

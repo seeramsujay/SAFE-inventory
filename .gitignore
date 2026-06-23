@@ -1,27 +1,35 @@
+# Android Build and Configuration
 *.iml
-.gradle
-.kotlin
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+.gradle/
+.kotlin/
 local.properties
-.env
+.idea/
+/build/
+/app/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aar
 debug.keystore
 
-# Web dependencies and builds
+# Web Dependencies & Builds
 node_modules/
 dist/
+dist-ssr/
+*.local
+
+# Environment Variables
+.env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 .eslintcache
+
+# Local Persistent Database Files
+api_logs.json
+
+# System Files
+.DS_Store
+Thumbs.db
