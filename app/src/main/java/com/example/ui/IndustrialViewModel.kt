@@ -101,19 +101,22 @@ class IndustrialViewModel(
             val logsCount = batchLogs.value.size
             val nextInt = 4900 + logsCount + 1
             
-            // Insert emergency audit log to room DB
-            repository.insertBatchLog(
-                BatchLogEntity(
-                    batchId = "EMG-$nextInt",
-                    productNameHindi = "आपातकालीन: $issueList",
-                    productNameEnglish = "DOWNTIME: $issueList",
-                    line = "Line A",
-                    unitsProduced = 0,
-                    status = "Failed",
-                    timestamp = System.currentTimeMillis(),
-                    targetUnits = 0
-                )
+            val entity = BatchLogEntity(
+                batchId = "EMG-$nextInt",
+                productNameHindi = "आपातकालीन: $issueList",
+                productNameEnglish = "DOWNTIME: $issueList",
+                line = "Line A",
+                unitsProduced = 0,
+                status = "Failed",
+                timestamp = System.currentTimeMillis(),
+                targetUnits = 0
             )
+
+            // Insert emergency audit log to room DB
+            repository.insertBatchLog(entity)
+
+            // Sync to web companion app
+            sendBatchLogToWeb(entity)
 
             // Reset emergency state
             selectedIssues.value = emptySet()
@@ -169,19 +172,22 @@ class IndustrialViewModel(
             activeBatchCountCompleted.value = completed
             batchId.value = nextBatchId
 
-            // Insert into SQLite database
-            repository.insertBatchLog(
-                BatchLogEntity(
-                    batchId = nextBatchId,
-                    productNameHindi = currentProductHindi,
-                    productNameEnglish = currentProductEnglish,
-                    line = "Line A",
-                    unitsProduced = 1250,
-                    status = "Success",
-                    timestamp = System.currentTimeMillis(),
-                    targetUnits = 1250
-                )
+            val entity = BatchLogEntity(
+                batchId = nextBatchId,
+                productNameHindi = currentProductHindi,
+                productNameEnglish = currentProductEnglish,
+                line = "Line A",
+                unitsProduced = 1250,
+                status = "Success",
+                timestamp = System.currentTimeMillis(),
+                targetUnits = 1250
             )
+
+            // Insert into SQLite database
+            repository.insertBatchLog(entity)
+
+            // Sync to web companion app
+            sendBatchLogToWeb(entity)
 
             // Reset Swipe Countdown Timer
             _timerRemainingSec.value = 420 // reset to 7:00
@@ -256,18 +262,67 @@ class IndustrialViewModel(
 
     fun insertManualBatch(batchIdInput: String, lines: String, units: Int, isSuccess: Boolean) {
         viewModelScope.launch {
-            repository.insertBatchLog(
-                BatchLogEntity(
-                    batchId = batchIdInput,
-                    productNameHindi = "क्रीम स्पेशल",
-                    productNameEnglish = "Cream Special",
-                    line = lines,
-                    unitsProduced = units,
-                    status = if (isSuccess) "Success" else "Failed",
-                    timestamp = System.currentTimeMillis(),
-                    targetUnits = units
-                )
+            val entity = BatchLogEntity(
+                batchId = batchIdInput,
+                productNameHindi = "क्रीम स्पेशल",
+                productNameEnglish = "Cream Special",
+                line = lines,
+                unitsProduced = units,
+                status = if (isSuccess) "Success" else "Failed",
+                timestamp = System.currentTimeMillis(),
+                targetUnits = units
             )
+            repository.insertBatchLog(entity)
+            sendBatchLogToWeb(entity)
+        }
+    }
+
+    private fun sendBatchLogToWeb(entity: BatchLogEntity) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val json = """
+                    {
+                      "batchId": "${entity.batchId}",
+                      "productNameHindi": "${entity.productNameHindi}",
+                      "productNameEnglish": "${entity.productNameEnglish}",
+                      "line": "${entity.line}",
+                      "unitsProduced": ${entity.unitsProduced},
+                      "status": "${entity.status}",
+                      "timestamp": ${entity.timestamp},
+                      "targetUnits": ${entity.targetUnits}
+                    }
+                """.trimIndent()
+
+                val client = okhttp3.OkHttpClient()
+                val body = okhttp3.RequestBody.create(
+                    okhttp3.MediaType.Companion.parse("application/json; charset=utf-8"),
+                    json
+                )
+                
+                val urls = listOf(
+                    "http://10.0.2.2:3000/api/logs",
+                    "http://localhost:3000/api/logs"
+                )
+
+                for (url in urls) {
+                    try {
+                        val request = okhttp3.Request.Builder()
+                            .url(url)
+                            .post(body)
+                            .build()
+                        client.newCall(request).execute().use { response ->
+                            if (response.isSuccessful) {
+                                android.util.Log.d("NexusSync", "Synced successfully to $url")
+                                return@launch
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("NexusSync", "Failed syncing to $url: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 

@@ -2,12 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   Activity, 
   Database, 
-  Tv, 
   Terminal, 
-  TrendingUp, 
   Clock, 
-  UserCheck, 
-  ShieldAlert, 
   Settings, 
   CheckCircle2, 
   XCircle, 
@@ -15,19 +11,23 @@ import {
   Trash2, 
   Edit3, 
   RefreshCw, 
-  Download, 
   Copy, 
   Cpu, 
   AlertTriangle,
   BookOpen,
   Wifi,
   FileSpreadsheet,
-  Link2
+  Link2,
+  QrCode,
+  ExternalLink,
+  Play,
+  Layers,
+  UserCheck
 } from 'lucide-react';
 
 // Interfaces mirroring the Android Room schema
 interface Product {
-  id: String;
+  id: string;
   name: string; // Hindi Name
   englishName: string; // English Name
   targetUph: number;
@@ -47,14 +47,18 @@ interface BatchLog {
   targetUnits: number;
 }
 
-interface ActiveShift {
-  workerId: string;
-  pin: string;
-  loginTime: number;
-  isHelmetChecked: boolean;
-  isWorkplaceClean: boolean;
-  isMachineNormal: boolean;
-  isActive: boolean;
+interface Order {
+  id: string;
+  recipeId: string;
+  recipeName: string;
+  recipeHindiName: string;
+  unitsProduced: number;
+  targetUnits: number;
+  status: 'Pending' | 'In Progress' | 'Completed' | 'Failed';
+  timestamp: number;
+  updatedTimestamp?: number;
+  notes?: string;
+  line?: string;
 }
 
 // Initial Data mirroring IndustrialRepository.kt
@@ -65,22 +69,15 @@ const INITIAL_PRODUCTS: Product[] = [
 ];
 
 const INITIAL_LOGS: BatchLog[] = [
-  { batchId: "B-4902", productNameHindi: "क्रीम स्पेशल", productNameEnglish: "Cream Special", line: "Line A", unitsProduced: 12500, status: "Success", timestamp: Date.now() - 3 * 3600000, targetUnits: 12000 },
-  { batchId: "B-4901", productNameHindi: "क्रीम स्पेशल", productNameEnglish: "Cream Special", line: "Line B", unitsProduced: 2100, status: "Failed", timestamp: Date.now() - 6 * 3600000, targetUnits: 2500 },
-  { batchId: "B-4900", productNameHindi: "प्रीमियम प्लस", productNameEnglish: "Premium Plus", line: "Line A", unitsProduced: 12480, status: "Success", timestamp: Date.now() - 12 * 3600000, targetUnits: 12000 },
-  { batchId: "B-8899", productNameHindi: "क्रीम स्पेशल", productNameEnglish: "Cream Special", line: "Line C", unitsProduced: 8900, status: "Success", timestamp: Date.now() - 18 * 3600000, targetUnits: 9000 },
-  { batchId: "B-8898", productNameHindi: "प्रीमियम प्लस", productNameEnglish: "Premium Plus", line: "Line A", unitsProduced: 1200, status: "Failed", timestamp: Date.now() - 24 * 3600000, targetUnits: 2500 }
+  { batchId: "ORD-1001", productNameHindi: "क्रीम स्पेशल", productNameEnglish: "Cream Special", line: "Line A", unitsProduced: 5000, status: "Success", timestamp: Date.now() - 3 * 3600000, targetUnits: 5000 },
+  { batchId: "ORD-1002", productNameHindi: "प्रीमियम प्लस", productNameEnglish: "Premium Plus", line: "Line B", unitsProduced: 2500, status: "Success", timestamp: Date.now() - 1.5 * 3600000, targetUnits: 2500 }
 ];
 
-const INITIAL_SHIFT: ActiveShift = {
-  workerId: "EMP-045",
-  pin: "5544",
-  loginTime: Date.now() - 4 * 3600000,
-  isHelmetChecked: true,
-  isWorkplaceClean: true,
-  isMachineNormal: true,
-  isActive: true
-};
+const INITIAL_ORDERS: Order[] = [
+  { id: "ORD-1001", recipeId: "PRD-001", recipeName: "Cream Special", recipeHindiName: "क्रीम स्पेशल", unitsProduced: 5000, targetUnits: 5000, status: 'Completed', timestamp: Date.now() - 3 * 3600000, updatedTimestamp: Date.now() - 3 * 3600000, line: "Line A" },
+  { id: "ORD-1002", recipeId: "PRD-002", recipeName: "Premium Plus", recipeHindiName: "प्रीमियम प्लस", unitsProduced: 2500, targetUnits: 2500, status: 'Completed', timestamp: Date.now() - 1.5 * 3600000, updatedTimestamp: Date.now() - 1.5 * 3600000, line: "Line B" },
+  { id: "ORD-1003", recipeId: "PRD-003", recipeName: "Standard Blend", recipeHindiName: "मानक मिश्रण", unitsProduced: 0, targetUnits: 5000, status: 'Pending', timestamp: Date.now() - 10 * 60000 }
+];
 
 export default function App() {
   // Persistence using localStorage
@@ -94,13 +91,29 @@ export default function App() {
     return cached ? JSON.parse(cached) : INITIAL_LOGS;
   });
 
-  const [activeShift, setActiveShift] = useState<ActiveShift | null>(() => {
-    const cached = localStorage.getItem('nexus_active_shift');
-    return cached ? JSON.parse(cached) : INITIAL_SHIFT;
+  const [orders, setOrders] = useState<Order[]>(() => {
+    const cached = localStorage.getItem('nexus_orders');
+    return cached ? JSON.parse(cached) : INITIAL_ORDERS;
   });
 
-  // Navigation state (Active tab)
+  // Check query parameter or local storage for worker access
+  const [workerToken, setWorkerToken] = useState<string | null>(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('workerToken');
+    if (token) {
+      localStorage.setItem('nexus_worker_token', token);
+      return token;
+    }
+    return localStorage.getItem('nexus_worker_token');
+  });
+
+  // Navigation state (Active tab on admin dashboard)
   const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'logs' | 'link-integration'>('dashboard');
+
+  // Preset recipe order form states
+  const [selectedProductId, setSelectedProductId] = useState<string>(products[0]?.id || 'PRD-001');
+  const [orderTargetUnits, setOrderTargetUnits] = useState<number>(5000);
+  const [selectedOrderLine, setSelectedOrderLine] = useState<string>('Line A');
 
   // Search and Filter states
   const [searchLog, setSearchLog] = useState('');
@@ -116,21 +129,22 @@ export default function App() {
   const [newProductManual, setNewProductManual] = useState('');
   const [showAddProductModal, setShowAddProductModal] = useState(false);
 
-  // Machine Simulator states
-  const [simulatedUnits, setSimulatedUnits] = useState(4820);
-  const [selectedSimProduct, setSelectedSimProduct] = useState<Product>(products[0] || INITIAL_PRODUCTS[0]);
-  const [simLine, setSimLine] = useState('Line A');
-  const [isSimulatorRunning, setIsSimulatorRunning] = useState(true);
-  const [emergencyStatus, setEmergencyStatus] = useState<boolean>(false);
-  const [downtimeReasons, setDowntimeReasons] = useState<string[]>([]);
+  // Worker Panel specific states
+  const [activeWorkerOrderId, setActiveWorkerOrderId] = useState<string | null>(null);
+  const [workerUnitsProducedInput, setWorkerUnitsProducedInput] = useState<number>(0);
+  const [workerProcessingLine, setWorkerProcessingLine] = useState<string>('Line A');
 
-  // Clock state
+  // Local clock state
   const [localTime, setLocalTime] = useState(new Date().toLocaleTimeString());
 
-  // Copy success feedback state
+  // Copy/action feedback state
+  const [copiedLink, setCopiedLink] = useState(false);
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
 
-  // Sync to local storage
+  // Relative time since last batch log update
+  const [timeSinceLastUpdate, setTimeSinceLastUpdate] = useState<string>('Never');
+
+  // Sync state to local storage
   useEffect(() => {
     localStorage.setItem('nexus_products', JSON.stringify(products));
   }, [products]);
@@ -140,8 +154,8 @@ export default function App() {
   }, [logs]);
 
   useEffect(() => {
-    localStorage.setItem('nexus_active_shift', JSON.stringify(activeShift));
-  }, [activeShift]);
+    localStorage.setItem('nexus_orders', JSON.stringify(orders));
+  }, [orders]);
 
   // Handle live clock update
   useEffect(() => {
@@ -151,107 +165,150 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // Live units counter simulator
+  // Multi-tab synchronization listening to localStorage modifications
   useEffect(() => {
-    if (!isSimulatorRunning || emergencyStatus || !activeShift) return;
+    const handleStorageSync = (e: StorageEvent) => {
+      if (e.key === 'nexus_orders' && e.newValue) {
+        setOrders(JSON.parse(e.newValue));
+      }
+      if (e.key === 'nexus_logs' && e.newValue) {
+        setLogs(JSON.parse(e.newValue));
+      }
+      if (e.key === 'nexus_products' && e.newValue) {
+        setProducts(JSON.parse(e.newValue));
+      }
+      if (e.key === 'nexus_worker_token') {
+        setWorkerToken(e.newValue);
+      }
+    };
+    window.addEventListener('storage', handleStorageSync);
+    return () => window.removeEventListener('storage', handleStorageSync);
+  }, []);
+
+  // Check URL updates periodically for workerToken
+  useEffect(() => {
     const interval = setInterval(() => {
-      setSimulatedUnits(prev => {
-        const ratePerSec = selectedSimProduct.targetUph / 3600;
-        // Random fluctuation for realistic industrial dashboard
-        const delta = Math.max(0.2, ratePerSec + (Math.random() - 0.4) * 0.5);
-        return Math.round((prev + delta) * 10) / 10;
-      });
+      const urlParams = new URLSearchParams(window.location.search);
+      const token = urlParams.get('workerToken');
+      if (token && token !== workerToken) {
+        localStorage.setItem('nexus_worker_token', token);
+        setWorkerToken(token);
+      }
     }, 1000);
     return () => clearInterval(interval);
-  }, [isSimulatorRunning, emergencyStatus, selectedSimProduct, activeShift]);
+  }, [workerToken]);
 
-  // Trigger simulated batch completion
-  const handleSimBatchSubmit = (status: 'Success' | 'Failed' = 'Success') => {
-    const roundedUnits = Math.floor(simulatedUnits);
-    const targetDemand = 5000;
-    
-    const newLog: BatchLog = {
-      batchId: `B-${Math.floor(1000 + Math.random() * 9000)}`,
-      productNameHindi: selectedSimProduct.name,
-      productNameEnglish: selectedSimProduct.englishName,
-      line: simLine,
-      unitsProduced: roundedUnits,
-      status: status,
-      timestamp: Date.now(),
-      targetUnits: targetDemand
+  // Calculate time since the last batch update
+  useEffect(() => {
+    const updateRelativeTime = () => {
+      if (logs.length === 0) {
+        setTimeSinceLastUpdate('No batches logged yet');
+        return;
+      }
+      const timestamps = logs.map(l => l.timestamp);
+      const latestTimestamp = Math.max(...timestamps);
+      const diffMs = Date.now() - latestTimestamp;
+      
+      if (diffMs < 0) {
+        setTimeSinceLastUpdate('Just now');
+        return;
+      }
+      
+      const diffSec = Math.floor(diffMs / 1000);
+      if (diffSec < 60) {
+        setTimeSinceLastUpdate(`${diffSec}s ago`);
+      } else {
+        const diffMin = Math.floor(diffSec / 60);
+        const remainingSec = diffSec % 60;
+        if (diffMin < 60) {
+          setTimeSinceLastUpdate(`${diffMin}m ${remainingSec}s ago`);
+        } else {
+          const diffHr = Math.floor(diffMin / 60);
+          const remainingMin = diffMin % 60;
+          setTimeSinceLastUpdate(`${diffHr}h ${remainingMin}m ago`);
+        }
+      }
     };
 
-    setLogs(prev => [newLog, ...prev]);
-    // Reset simulator units for next container batch
-    setSimulatedUnits(0);
-    if (status === 'Failed') {
-      setIsSimulatorRunning(false);
+    updateRelativeTime();
+    const interval = setInterval(updateRelativeTime, 1000);
+    return () => clearInterval(interval);
+  }, [logs]);
+
+  // Place order for preset recipe
+  const handlePlaceOrder = (e: React.FormEvent) => {
+    e.preventDefault();
+    const product = products.find(p => p.id === selectedProductId);
+    if (!product) {
+      alert("Invalid product selection");
+      return;
     }
-  };
 
-  // Trigger factory shutdown / emergency stop
-  const triggerEmergencyStop = (reason: string) => {
-    setEmergencyStatus(true);
-    setIsSimulatorRunning(false);
-    if (!downtimeReasons.includes(reason)) {
-      setDowntimeReasons(prev => [...prev, reason]);
-    }
-
-    // Automatically write failed log to db history
-    const failedLog: BatchLog = {
-      batchId: `DWT-${Math.floor(100 + Math.random() * 900)}`,
-      productNameHindi: "मशीन डाउनटाइम",
-      productNameEnglish: `EMERGENCY STOP [${reason}]`,
-      line: simLine,
-      unitsProduced: Math.floor(simulatedUnits),
-      status: 'Failed',
-      timestamp: Date.now(),
-      targetUnits: 5000
+    const newOrder: Order = {
+      id: `ORD-${1000 + orders.length + 1}`,
+      recipeId: product.id,
+      recipeName: product.englishName,
+      recipeHindiName: product.name,
+      unitsProduced: 0,
+      targetUnits: orderTargetUnits,
+      status: 'Pending',
+      timestamp: Date.now()
     };
-    setLogs(prev => [failedLog, ...prev]);
+
+    const updatedOrders = [newOrder, ...orders];
+    setOrders(updatedOrders);
+    // Explicitly sync to local storage immediately to trigger tab listener
+    localStorage.setItem('nexus_orders', JSON.stringify(updatedOrders));
   };
 
-  // Recover machine from emergency shutdown
-  const resetEmergencyShutdown = () => {
-    setEmergencyStatus(false);
-    setDowntimeReasons([]);
-    setSimulatedUnits(0);
-    setIsSimulatorRunning(true);
+  // Exit worker view and restore admin dashboard
+  const handleExitWorkerMode = () => {
+    localStorage.removeItem('nexus_worker_token');
+    // Clear query parameter from address bar
+    window.history.replaceState({}, document.title, window.location.pathname);
+    setWorkerToken(null);
   };
 
-  // Toggle shift mock parameters
-  const loginMockWorker = (empId: string) => {
-    const newShift: ActiveShift = {
-      workerId: empId,
-      pin: "1234",
-      loginTime: Date.now(),
-      isHelmetChecked: true,
-      isWorkplaceClean: true,
-      isMachineNormal: true,
-      isActive: true
-    };
-    setActiveShift(newShift);
-  };
-
-  const logoutMockWorker = () => {
-    setActiveShift(null);
-  };
-
-  // Clear batch logs (matching Android viewModel's clear BatchLogs action)
+  // Clear batch logs
   const handleClearAllLogs = () => {
     if (window.confirm("CONFIRMATION REQUIRED: Clear all production histories on file?")) {
       setLogs([]);
+      // Clear completed status on orders to keep consistent
+      const clearedOrders = orders.map(o => {
+        if (o.status === 'Completed' || o.status === 'Failed') {
+          return { ...o, status: 'Pending' as const, unitsProduced: 0 };
+        }
+        return o;
+      });
+      setOrders(clearedOrders);
+      localStorage.setItem('nexus_logs', JSON.stringify([]));
+      localStorage.setItem('nexus_orders', JSON.stringify(clearedOrders));
+    }
+  };
+
+  // Reseed datasets
+  const handleReseedData = () => {
+    if (window.confirm("CONFIRMATION: Reset and seed default recipe arrays and logs?")) {
+      setProducts(INITIAL_PRODUCTS);
+      setLogs(INITIAL_LOGS);
+      setOrders(INITIAL_ORDERS);
+      localStorage.setItem('nexus_products', JSON.stringify(INITIAL_PRODUCTS));
+      localStorage.setItem('nexus_logs', JSON.stringify(INITIAL_LOGS));
+      localStorage.setItem('nexus_orders', JSON.stringify(INITIAL_ORDERS));
+      alert("Database variables restored to initial setup.");
     }
   };
 
   // Delete product
   const handleDeleteProduct = (pId: string) => {
     if (window.confirm(`CONFIRM: Delete mixture recipe ${pId}?`)) {
-      setProducts(prev => prev.filter(p => p.id !== pId));
+      const updated = products.filter(p => p.id !== pId);
+      setProducts(updated);
+      localStorage.setItem('nexus_products', JSON.stringify(updated));
     }
   };
 
-  // Save new or modified product mixture
+  // Save or modify product
   const handleSaveProduct = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProductId || !newProductName || !newProductEnglishName) {
@@ -259,19 +316,19 @@ export default function App() {
       return;
     }
 
+    let updatedProducts;
     if (editingProduct) {
-      // Edit mode
-      setProducts(prev => prev.map(p => p.id === editingProduct.id ? {
+      updatedProducts = products.map(p => p.id === editingProduct.id ? {
         ...p,
         name: newProductName,
         englishName: newProductEnglishName,
         targetUph: newProductTargetUph,
         colorHex: newProductColor,
         manualFileName: newProductManual || undefined
-      } : p));
+      } : p);
+      setProducts(updatedProducts);
       setEditingProduct(null);
     } else {
-      // Create mode
       if (products.some(p => p.id.toLowerCase() === newProductId.toLowerCase())) {
         alert("This mixture product ID already exists!");
         return;
@@ -285,10 +342,11 @@ export default function App() {
         isActive: true,
         manualFileName: newProductManual || undefined
       };
-      setProducts(prev => [...prev, newItem]);
+      updatedProducts = [...products, newItem];
+      setProducts(updatedProducts);
     }
 
-    // Reset clean fields
+    localStorage.setItem('nexus_products', JSON.stringify(updatedProducts));
     setNewProductId('');
     setNewProductName('');
     setNewProductEnglishName('');
@@ -298,10 +356,9 @@ export default function App() {
     setShowAddProductModal(false);
   };
 
-  // Trigger modification filling form
   const handleStartEditProduct = (p: Product) => {
     setEditingProduct(p);
-    setNewProductId(p.id.toString());
+    setNewProductId(p.id);
     setNewProductName(p.name);
     setNewProductEnglishName(p.englishName);
     setNewProductTargetUph(p.targetUph);
@@ -310,20 +367,76 @@ export default function App() {
     setShowAddProductModal(true);
   };
 
-  // Copy sample code help utils
+  // Worker controls
+  const handleWorkerStartOrder = (orderId: string) => {
+    const updated = orders.map(o => o.id === orderId ? { ...o, status: 'In Progress' as const, updatedTimestamp: Date.now() } : o);
+    setOrders(updated);
+    localStorage.setItem('nexus_orders', JSON.stringify(updated));
+    setActiveWorkerOrderId(orderId);
+    
+    const activeOrder = orders.find(o => o.id === orderId);
+    if (activeOrder) {
+      setWorkerUnitsProducedInput(activeOrder.unitsProduced);
+    }
+  };
+
+  const handleWorkerUpdateProgress = (val: number) => {
+    if (!activeWorkerOrderId) return;
+    const updated = orders.map(o => o.id === activeWorkerOrderId ? { ...o, unitsProduced: val, updatedTimestamp: Date.now() } : o);
+    setOrders(updated);
+    localStorage.setItem('nexus_orders', JSON.stringify(updated));
+    setWorkerUnitsProducedInput(val);
+  };
+
+  const handleWorkerCompleteOrder = (status: 'Success' | 'Failed') => {
+    if (!activeWorkerOrderId) return;
+    const order = orders.find(o => o.id === activeWorkerOrderId);
+    if (!order) return;
+
+    // 1. Create a new log history entry
+    const newLog: BatchLog = {
+      batchId: order.id,
+      productNameHindi: order.recipeHindiName,
+      productNameEnglish: order.recipeName,
+      line: workerProcessingLine,
+      unitsProduced: workerUnitsProducedInput,
+      status: status,
+      timestamp: Date.now(),
+      targetUnits: order.targetUnits
+    };
+
+    const updatedLogs = [newLog, ...logs];
+    setLogs(updatedLogs);
+    localStorage.setItem('nexus_logs', JSON.stringify(updatedLogs));
+
+    // 2. Set order status as completed/failed
+    const updatedOrders = orders.map(o => o.id === activeWorkerOrderId ? { 
+      ...o, 
+      status: (status === 'Success' ? 'Completed' : 'Failed') as any, 
+      unitsProduced: workerUnitsProducedInput,
+      updatedTimestamp: Date.now(),
+      line: workerProcessingLine
+    } : o);
+    setOrders(updatedOrders);
+    localStorage.setItem('nexus_orders', JSON.stringify(updatedOrders));
+
+    // 3. Clear active states
+    setActiveWorkerOrderId(null);
+    setWorkerUnitsProducedInput(0);
+  };
+
   const triggerCopyCode = (text: string, identifier: string) => {
     navigator.clipboard.writeText(text);
     setCopiedSection(identifier);
     setTimeout(() => setCopiedSection(null), 2000);
   };
 
-  // Analytical Metrics Computations
-  const totalSuccessBatches = logs.filter(l => l.status === 'Success').length;
-  const successRatio = logs.length > 0 ? Math.round((totalSuccessBatches / logs.length) * 100) : 100;
-  const totalUnits = logs.reduce((sum, l) => sum + l.unitsProduced, 0);
-  const activeWorkerName = activeShift?.workerId || "Offline";
+  // Calculations for Admin Panel
+  const batchesDoneCount = logs.filter(l => l.status === 'Success').length;
+  const batchesOrderedCount = orders.length;
+  const successRatio = logs.length > 0 ? Math.round((batchesDoneCount / logs.length) * 100) : 100;
+  const totalUnitsProduced = logs.reduce((sum, l) => sum + l.unitsProduced, 0);
 
-  // Filter logs list
   const filteredLogs = logs.filter(l => {
     const searchMatch = l.batchId.toLowerCase().includes(searchLog.toLowerCase()) || 
                         l.productNameEnglish.toLowerCase().includes(searchLog.toLowerCase()) ||
@@ -332,6 +445,292 @@ export default function App() {
     return searchMatch && lineMatch;
   });
 
+  // Construct worker portal URL
+  const workerUrl = `${window.location.origin}${window.location.pathname}?workerToken=nexus-worker-longlived-token-2026`;
+  const qrCodeImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(workerUrl)}&color=00f0ff&bgcolor=161920`;
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(workerUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  // ----------------------------------------------------
+  // WORKER PORTAL VIEW (loads when workerToken is active)
+  // ----------------------------------------------------
+  if (workerToken) {
+    const activeOrderDetails = orders.find(o => o.id === activeWorkerOrderId);
+
+    return (
+      <div className="min-h-screen bg-[#0A0C10] text-[#D1D4DC] flex flex-col font-sans selection:bg-[#FF6B00] selection:text-black">
+        {/* Floor Handheld Kiosk Header */}
+        <header className="border-b border-[#FF6B00]/40 bg-[#12151C] py-4 px-6 sticky top-0 z-50 shadow-md">
+          <div className="max-w-[800px] mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-2.5 h-2.5 rounded-full bg-[#FF6B00] animate-ping"></div>
+              <div>
+                <span className="text-[10px] text-[#FF6B00] font-mono tracking-widest uppercase font-bold">Floor Kiosk Uplink</span>
+                <h1 className="text-base font-black text-white font-display">WORKER TERMINAL</h1>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-mono bg-gray-900 border border-gray-800 text-gray-400 px-2.5 py-1 rounded">
+                SECURE TOKEN OK
+              </span>
+              <button 
+                onClick={handleExitWorkerMode}
+                className="bg-gray-800 hover:bg-red-950/40 text-xs font-mono font-semibold px-3 py-1.5 rounded border border-gray-700 hover:border-red-500/50 transition-all text-white"
+              >
+                Exit Worker Mode
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <main className="flex-1 max-w-[800px] mx-auto w-full p-4 md:p-6 flex flex-col gap-6">
+          {/* Active processing detail view */}
+          {activeWorkerOrderId && activeOrderDetails ? (
+            <div className="bg-gradient-to-b from-[#1E2330] to-[#12151D] border-2 border-[#FF6B00] rounded-xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+              <div className="bg-[#12151D] border-b border-gray-800 p-4 md:p-6 flex justify-between items-center">
+                <div>
+                  <span className="text-[10px] font-mono text-[#FF6B00] bg-[#FF6B00]/10 border border-[#FF6B00]/25 px-2 py-0.5 rounded font-bold uppercase">
+                    Running Batch
+                  </span>
+                  <h2 className="text-2xl font-black text-white font-mono mt-1">{activeOrderDetails.id}</h2>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs text-gray-400 block font-mono">TARGET DEMAND</span>
+                  <span className="text-lg font-bold text-white font-mono">{activeOrderDetails.targetUnits.toLocaleString()} units</span>
+                </div>
+              </div>
+
+              <div className="p-6 flex flex-col gap-6">
+                {/* Product Profile */}
+                <div className="bg-[#0A0C10] p-4 rounded-lg border border-gray-800 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-bold text-white leading-tight">{activeOrderDetails.recipeName}</h3>
+                    <h4 className="text-sm text-gray-400 font-display mt-0.5">{activeOrderDetails.recipeHindiName}</h4>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: INITIAL_PRODUCTS.find(p => p.id === activeOrderDetails.recipeId)?.colorHex || '#FFF' }}></span>
+                    <span className="text-xs font-mono font-semibold text-white">{activeOrderDetails.recipeId}</span>
+                  </div>
+                </div>
+
+                {/* Progress Visualizer */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex justify-between items-end">
+                    <span className="text-xs font-mono text-gray-400">UNITS PRODUCED</span>
+                    <div className="flex items-baseline gap-1 font-mono">
+                      <span className="text-4xl font-black text-[#FF6B00] tracking-wider">{workerUnitsProducedInput.toLocaleString()}</span>
+                      <span className="text-xs text-gray-500">/ {activeOrderDetails.targetUnits.toLocaleString()}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="w-full bg-[#0A0C10] border border-gray-800 h-6 rounded-full overflow-hidden p-1">
+                    <div 
+                      className="bg-gradient-to-r from-[#FF6B00] to-yellow-500 h-full rounded-full transition-all duration-300 shadow-[0_0_10px_rgba(255,107,0,0.3)]"
+                      style={{ width: `${Math.min(100, (workerUnitsProducedInput / activeOrderDetails.targetUnits) * 100)}%` }}
+                    ></div>
+                  </div>
+                </div>
+
+                {/* Big Unit Adjuster Buttons */}
+                <div className="flex flex-col gap-3 mt-2">
+                  <span className="text-xs font-mono text-gray-400 font-bold uppercase tracking-wider">Tap to increment units</span>
+                  
+                  <div className="grid grid-cols-3 gap-3">
+                    <button
+                      onClick={() => handleWorkerUpdateProgress(Math.min(activeOrderDetails.targetUnits, workerUnitsProducedInput + 100))}
+                      className="bg-[#242936] hover:bg-[#2F3547] text-white py-4 rounded-xl border border-gray-700 text-sm font-mono font-black transition active:scale-95"
+                    >
+                      +100
+                    </button>
+                    <button
+                      onClick={() => handleWorkerUpdateProgress(Math.min(activeOrderDetails.targetUnits, workerUnitsProducedInput + 500))}
+                      className="bg-[#242936] hover:bg-[#2F3547] text-white py-4 rounded-xl border border-gray-700 text-sm font-mono font-black transition active:scale-95"
+                    >
+                      +500
+                    </button>
+                    <button
+                      onClick={() => handleWorkerUpdateProgress(Math.min(activeOrderDetails.targetUnits, workerUnitsProducedInput + 1000))}
+                      className="bg-[#242936] hover:bg-[#2F3547] text-white py-4 rounded-xl border border-gray-700 text-sm font-mono font-black transition active:scale-95"
+                    >
+                      +1,000
+                    </button>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => handleWorkerUpdateProgress(0)}
+                      className="bg-gray-900 hover:bg-gray-800 text-gray-400 text-xs font-mono font-semibold px-4 py-2 border border-gray-850 rounded"
+                    >
+                      Reset Count
+                    </button>
+                    <button 
+                      onClick={() => handleWorkerUpdateProgress(activeOrderDetails.targetUnits)}
+                      className="bg-gray-900 hover:bg-gray-800 text-[#00F0FF] text-xs font-mono font-semibold px-4 py-2 border border-gray-850 rounded ml-auto"
+                    >
+                      Set to Full ({activeOrderDetails.targetUnits})
+                    </button>
+                  </div>
+                </div>
+
+                {/* Line selector */}
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs text-gray-400 font-mono">Assigned Factory Line</label>
+                  <select 
+                    value={workerProcessingLine}
+                    onChange={(e) => setWorkerProcessingLine(e.target.value)}
+                    className="bg-[#0A0C10] border border-gray-850 p-3 rounded-lg text-white font-mono text-sm outline-none focus:border-[#FF6B00]"
+                  >
+                    <option value="Line A">Line A (Assembly Floor)</option>
+                    <option value="Line B">Line B (Auto Injection)</option>
+                    <option value="Line C">Line C (Extrusion Sinter)</option>
+                  </select>
+                </div>
+
+                {/* Complete / Fail Buttons */}
+                <div className="grid grid-cols-2 gap-4 border-t border-gray-800 pt-6 mt-4">
+                  <button
+                    onClick={() => {
+                      const reason = prompt("Enter failure downtime reason:", "Feedstock Blockage");
+                      if (reason !== null) {
+                        handleWorkerCompleteOrder('Failed');
+                      }
+                    }}
+                    className="bg-red-950/20 hover:bg-red-900/30 text-red-500 border border-red-900/50 py-4 px-6 rounded-xl font-bold font-mono text-sm transition tracking-wider flex items-center justify-center gap-2"
+                  >
+                    <XCircle className="w-5 h-5" />
+                    REPORT ALARM FAULT
+                  </button>
+
+                  <button
+                    onClick={() => handleWorkerCompleteOrder('Success')}
+                    className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-black py-4 px-6 rounded-xl font-black font-mono text-sm transition shadow-lg shadow-emerald-950/25 tracking-wider flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle2 className="w-5 h-5 text-black" />
+                    COMPLETE SUCCESS
+                  </button>
+                </div>
+
+                <button 
+                  onClick={() => {
+                    setActiveWorkerOrderId(null);
+                    setWorkerUnitsProducedInput(0);
+                  }}
+                  className="w-full text-center text-gray-500 hover:text-white transition text-xs font-mono underline mt-2"
+                >
+                  Cancel and Release Batch Back to Queue
+                </button>
+
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-6">
+              {/* Batch Queue Overview */}
+              <div className="bg-[#161920] border border-gray-850 p-5 rounded-xl">
+                <h3 className="text-base font-black text-white uppercase tracking-tight flex items-center gap-2 mb-1">
+                  <Layers className="text-[#FF6B00] w-5 h-5" />
+                  PENDING DISPATCH QUEUE
+                </h3>
+                <p className="text-xs text-gray-400 font-mono mb-4">Select an ordered recipe from the queue to start processing.</p>
+
+                <div className="flex flex-col gap-3">
+                  {orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').length === 0 ? (
+                    <div className="p-8 text-center bg-[#0F1115] border border-dashed border-gray-800 rounded-lg">
+                      <p className="text-xs text-gray-500 font-mono">NO ACTIVE ORDERS ASSIGNED</p>
+                      <p className="text-[10px] text-gray-650 font-mono mt-1">Awaiting recipe dispatches from the administrative console...</p>
+                    </div>
+                  ) : (
+                    orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').map(o => (
+                      <div 
+                        key={o.id}
+                        className={`bg-[#0F1115] border rounded-lg p-4 transition-all ${
+                          o.status === 'In Progress' 
+                            ? 'border-[#FF6B00] shadow-[0_0_10px_rgba(255,107,0,0.1)]' 
+                            : 'border-gray-850 hover:border-gray-700'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start gap-4">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold font-mono text-white tracking-widest">{o.id}</span>
+                              <span className={`text-[9px] font-mono px-2 py-0.5 rounded font-bold ${
+                                o.status === 'In Progress' 
+                                  ? 'bg-[#FF6B00]/15 text-[#FF6B00] border border-[#FF6B00]/25' 
+                                  : 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20'
+                              }`}>
+                                {o.status === 'In Progress' ? 'ACTIVE PROCESSING' : 'PENDING START'}
+                              </span>
+                            </div>
+                            <h4 className="text-base font-bold text-white mt-1 leading-tight">{o.recipeName}</h4>
+                            <span className="text-xs text-gray-500 font-display block leading-none mt-0.5">{o.recipeHindiName}</span>
+                          </div>
+                          
+                          <div className="text-right">
+                            <span className="text-[10px] font-mono text-gray-400 block uppercase">Demand target</span>
+                            <span className="text-sm font-bold text-white font-mono">{o.targetUnits.toLocaleString()} Units</span>
+                          </div>
+                        </div>
+
+                        <div className="border-t border-gray-850 mt-3 pt-3 flex items-center justify-between">
+                          <span className="text-[10px] text-gray-500 font-mono">Ordered: {new Date(o.timestamp).toLocaleTimeString()}</span>
+                          <button
+                            onClick={() => handleWorkerStartOrder(o.id)}
+                            className="bg-[#FF6B00] hover:bg-[#E05F00] text-black font-black font-mono text-xs px-4 py-2 rounded-lg transition active:scale-95 flex items-center gap-1.5 shadow-md"
+                          >
+                            <Play className="w-3.5 h-3.5 fill-black text-black" />
+                            {o.status === 'In Progress' ? 'RESUME WORK' : 'START PRODUCTION'}
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Complete logs section for workers */}
+              <div className="bg-[#161920] border border-gray-850 p-5 rounded-xl">
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">RECIPES HISTORY (TODAY)</h3>
+                
+                <div className="flex flex-col gap-2 font-mono text-xs">
+                  {orders.filter(o => o.status === 'Completed' || o.status === 'Failed').slice(0, 3).map(o => (
+                    <div key={o.id} className="bg-[#0F1115] border border-gray-850 p-3 rounded flex justify-between items-center">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-white font-bold">{o.id}</span>
+                          <span className="text-gray-400">{o.recipeName}</span>
+                        </div>
+                        <span className="text-[10px] text-gray-500">{new Date(o.updatedTimestamp || o.timestamp).toLocaleTimeString()}</span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        o.status === 'Completed' 
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                          : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                      }`}>
+                        {o.status === 'Completed' ? 'SUCCESS' : 'ALARM'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </main>
+
+        <footer className="border-t border-gray-850 py-4 px-6 bg-[#12151C] text-center mt-auto">
+          <p className="text-[10px] text-gray-500 font-mono uppercase tracking-wider">
+            Industrial Nexus Floor Terminal App | Vercel Serverless Console
+          </p>
+        </footer>
+      </div>
+    );
+  }
+
+  // ----------------------------------------------------
+  // ADMIN DASHBOARD VIEW
+  // ----------------------------------------------------
   return (
     <div className="min-h-screen bg-[#0F1115] text-[#D1D4DC] flex flex-col font-sans selection:bg-[#00F0FF] selection:text-black">
       {/* 1. STRUCTURAL ENTERPRISE HEADER */}
@@ -340,15 +739,15 @@ export default function App() {
           
           {/* Logo Brand Brand */}
           <div className="flex items-center gap-3">
-            <div className="p-2 border border-industrial-accent bg-industrial-accent/10 rounded">
+            <div className="p-2 border border-[#00F0FF]/30 bg-[#00F0FF]/10 rounded">
               <Cpu className="h-6 w-6 text-industrial-accent animate-pulse" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs bg-industrial-accent/20 text-industrial-accent px-2 py-0.5 rounded font-mono font-bold tracking-widest uppercase">
+                <span className="text-xs bg-[#00F0FF]/25 text-industrial-accent px-2 py-0.5 rounded font-mono font-bold tracking-widest uppercase">
                   Companion Console
                 </span>
-                <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded font-mono">v1.2-Cloud</span>
+                <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded font-mono">v2.0-Remodeled</span>
               </div>
               <h1 className="text-xl md:text-2xl font-black font-display tracking-tight text-white flex items-center gap-2">
                 INDUSTRIAL NEXUS <span className="text-industrial-accent">●</span> <span className="text-gray-400 font-mono text-sm leading-none">ADMIN BOARD</span>
@@ -367,45 +766,15 @@ export default function App() {
 
             {/* Socket Server simulation status */}
             <div className="flex items-center gap-2 bg-[#141822] border border-industrial-border px-3 py-1.5 rounded">
-              <Wifi className={`w-4 h-4 ${emergencyStatus ? 'text-industrial-danger animate-ping' : 'text-industrial-success animate-pulse'}`} />
-              <span>ROOM-DB CONNECTION:</span>
-              <span className={`font-bold ${emergencyStatus ? 'text-industrial-danger glow-text-red' : 'text-industrial-success glow-text-success'}`}>
-                {emergencyStatus ? 'SHUTDOWN ACTIVE' : 'SECURE READY'}
+              <Wifi className="w-4 h-4 text-industrial-success animate-pulse" />
+              <span>UPLINK STATUS:</span>
+              <span className="font-bold text-industrial-success glow-text-success">
+                ONLINE SYNC
               </span>
-            </div>
-
-            {/* Shift Tracker */}
-            <div className="flex items-center gap-2 bg-[#141822] border border-industrial-border px-3 py-1.5 rounded">
-              <UserCheck className="w-4 h-4 text-industrial-safety" />
-              <span>OPERATOR:</span>
-              <span className="text-white font-bold">{activeWorkerName}</span>
             </div>
           </div>
         </div>
       </header>
-
-      {/* EMERGENCY SYSTEM STATS ROW */}
-      {emergencyStatus && (
-        <div className="bg-industrial-danger/10 border-b border-industrial-danger text-industrial-danger py-3 px-6 select-none animate-pulse">
-          <div className="max-w-[1500px] mx-auto flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="w-5 h-5 animate-bounce" />
-              <div>
-                <span className="font-bold underline tracking-widest text-[#EF4444] font-mono uppercase">! CRITICAL ALARM STATUS ACTIVE !</span>
-                <p className="text-xs text-gray-300 mt-0.5">
-                  Downtime declared on {simLine}. Reasons listed (simulated Room schema conflict): <span className="font-bold text-white font-mono bg-red-950 px-2 py-0.5 rounded">{downtimeReasons.join(', ')}</span>
-                </p>
-              </div>
-            </div>
-            <button 
-              onClick={resetEmergencyShutdown}
-              className="bg-white text-black hover:bg-industrial-accent hover:text-black transition px-4 py-1.5 rounded text-xs font-mono font-bold tracking-wide shadow-md"
-            >
-              RESOLVE & RESET BREAKDOWN
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* MAIN CONTAINER LAYOUT */}
       <div className="max-w-[1500px] mx-auto w-full p-4 md:p-6 flex-1 flex flex-col gap-6">
@@ -463,7 +832,7 @@ export default function App() {
               SUCCESS RATE: {successRatio}%
             </span>
             <span className="bg-[#FF6B00]/15 text-[#FF6B00] border border-[#FF6B00]/30 px-2 py-1 rounded">
-              TOTAL UNIT WEIGHT: {totalUnits.toLocaleString()} units
+              TOTAL COMPLETED: {totalUnitsProduced.toLocaleString()} units
             </span>
           </div>
         </div>
@@ -472,411 +841,319 @@ export default function App() {
         
         {/* TAB 1: LIVE CONTROL TERMINAL */}
         {activeTab === 'dashboard' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="flex flex-col gap-6">
             
-            {/* COLUMN 1: LIVE HARDWARE SIMULATOR */}
-            <div className="lg:col-span-2 flex flex-col gap-6">
+            {/* THREE METRICS ROW */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               
-              <div className="bg-industrial-card border-2 border-industrial-border text-[#D1D4DC] overflow-hidden shadow-lg flex flex-col">
-                <div className="bg-[#0B0D10] border-b-2 border-industrial-border p-4 flex justify-between items-center flex-wrap gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="relative flex h-3.5 w-3.5">
-                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isSimulatorRunning && !emergencyStatus ? 'bg-industrial-accent' : 'bg-industrial-danger'} opacity-75`}></span>
-                      <span className={`relative inline-flex rounded-full h-3.5 w-3.5 ${isSimulatorRunning && !emergencyStatus ? 'bg-industrial-accent' : 'bg-industrial-danger'}`}></span>
+              {/* Card 1: Time Since Last Update */}
+              <div className="bg-gradient-to-br from-[#161920] to-[#0D1016] border-2 border-industrial-border hover:border-industrial-accent/40 rounded-xl p-6 shadow-xl relative overflow-hidden transition-all duration-300 group">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-industrial-accent/5 rounded-full filter blur-xl pointer-events-none group-hover:bg-industrial-accent/10 transition-all duration-300"></div>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-xs font-mono font-semibold tracking-wider text-gray-400 uppercase">TIME SINCE LAST UPDATE</span>
+                    <div className="text-2xl md:text-3xl font-black text-white font-mono tracking-tight mt-2 glow-text-cyan">
+                      {timeSinceLastUpdate}
+                    </div>
+                  </div>
+                  <div className="p-2 border border-industrial-accent/20 bg-industrial-accent/10 rounded-lg">
+                    <Clock className="w-5 h-5 text-industrial-accent animate-pulse" />
+                  </div>
+                </div>
+                <p className="text-[10px] text-gray-550 font-mono text-gray-500 mt-4 uppercase">
+                  Dynamic interval reading since latest floor checkin
+                </p>
+              </div>
+
+              {/* Card 2: Batches Completed */}
+              <div className="bg-gradient-to-br from-[#161920] to-[#0D1016] border-2 border-industrial-border hover:border-industrial-success/40 rounded-xl p-6 shadow-xl relative overflow-hidden transition-all duration-300 group">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-industrial-success/5 rounded-full filter blur-xl pointer-events-none group-hover:bg-industrial-success/10 transition-all duration-300"></div>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-xs font-mono font-semibold tracking-wider text-gray-400 uppercase">BATCHES DONE</span>
+                    <div className="text-3xl md:text-4xl font-black text-white font-mono tracking-tight mt-2 glow-text-success">
+                      {batchesDoneCount}
+                    </div>
+                  </div>
+                  <div className="p-2 border border-[#10B981]/20 bg-[#10B981]/10 rounded-lg">
+                    <CheckCircle2 className="w-5 h-5 text-[#10B981]" />
+                  </div>
+                </div>
+                <p className="text-[10px] text-gray-500 font-mono mt-4 uppercase">
+                  Successful floor runs pushed to SQLite database
+                </p>
+              </div>
+
+              {/* Card 3: Batches Ordered */}
+              <div className="bg-gradient-to-br from-[#161920] to-[#0D1016] border-2 border-industrial-border hover:border-industrial-safety/40 rounded-xl p-6 shadow-xl relative overflow-hidden transition-all duration-300 group">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-industrial-safety/5 rounded-full filter blur-xl pointer-events-none group-hover:bg-industrial-safety/10 transition-all duration-300"></div>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-xs font-mono font-semibold tracking-wider text-gray-400 uppercase">BATCHES ORDERED</span>
+                    <div className="text-3xl md:text-4xl font-black text-white font-mono tracking-tight mt-2 glow-text-orange">
+                      {batchesOrderedCount}
+                    </div>
+                  </div>
+                  <div className="p-2 border border-[#FF6B00]/20 bg-[#FF6B00]/10 rounded-lg">
+                    <Layers className="w-5 h-5 text-industrial-safety" />
+                  </div>
+                </div>
+                <p className="text-[10px] text-gray-500 font-mono mt-4 uppercase">
+                  Total preset dispatches triggered by admin panel
+                </p>
+              </div>
+
+            </div>
+
+            {/* MAIN TWO COLUMN LAYOUT */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* COLUMN 1 & 2: RECIPE DISPATCHER & FLOORS MONITOR */}
+              <div className="lg:col-span-2 flex flex-col gap-6">
+                
+                {/* PRESET RECIPE DISPATCHER PANEL */}
+                <div className="bg-industrial-card border-2 border-industrial-border rounded-xl shadow-lg overflow-hidden flex flex-col">
+                  <div className="bg-[#0B0D10] border-b-2 border-industrial-border p-4 flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <Layers className="h-5 w-5 text-industrial-accent" />
+                      <h2 className="text-base font-black tracking-tight text-white uppercase font-display">
+                        PRESET RECIPE DISPATCH CONSOLE
+                      </h2>
+                    </div>
+                    <span className="text-[10px] font-mono bg-industrial-accent/10 border border-industrial-accent/20 text-industrial-accent px-2 py-0.5 rounded font-bold">
+                      ADMIN REMOTE ORDER
                     </span>
-                    <h2 className="text-lg font-black tracking-tight text-white uppercase font-display">SIMULATED EXTRUDER FEEDBACK (ACTIVE LINE)</h2>
+                  </div>
+
+                  <form onSubmit={handlePlaceOrder} className="p-6 flex flex-col md:flex-row gap-6 items-end bg-[#11141B]">
+                    {/* Selector Preset */}
+                    <div className="flex-1 flex flex-col gap-2 text-xs font-mono w-full">
+                      <label className="text-gray-400 font-bold uppercase tracking-wider">Select Preset Recipe Formula:</label>
+                      <select 
+                        value={selectedProductId}
+                        onChange={(e) => setSelectedProductId(e.target.value)}
+                        className="bg-[#0B0D10] text-white border-2 border-industrial-border px-3 py-3 rounded-lg w-full font-mono text-sm focus:border-industrial-accent outline-none cursor-pointer"
+                      >
+                        {products.map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.englishName} ({p.name}) [Target UPH: {p.targetUph}]
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Quantity Demand Input */}
+                    <div className="flex-1 flex flex-col gap-2 text-xs font-mono w-full">
+                      <label className="text-gray-400 font-bold uppercase tracking-wider">Target Units Demand:</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          value={orderTargetUnits}
+                          onChange={(e) => setOrderTargetUnits(Math.max(1, parseInt(e.target.value) || 0))}
+                          className="bg-[#0B0D10] text-white border-2 border-industrial-border px-3 py-3 rounded-lg flex-1 font-mono text-sm focus:border-industrial-accent outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setOrderTargetUnits(prev => Math.max(1000, prev - 1000))}
+                          className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white px-3 py-1 rounded text-xs"
+                        >
+                          -1K
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setOrderTargetUnits(prev => prev + 1000)}
+                          className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white px-3 py-1 rounded text-xs"
+                        >
+                          +1K
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Submit Order */}
+                    <button
+                      type="submit"
+                      className="bg-gradient-to-r from-industrial-accent to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-black font-black font-mono text-xs py-3 px-6 rounded-lg transition-all tracking-wider shadow-lg shadow-cyan-950/20 w-full md:w-auto h-[48px] uppercase flex items-center justify-center gap-1.5"
+                    >
+                      <Plus className="w-4 h-4 text-black" strokeWidth={3} />
+                      Order Recipe
+                    </button>
+                  </form>
+                </div>
+
+                {/* ACTIVE FLOOR ORDERS QUEUE */}
+                <div className="bg-industrial-card border-2 border-industrial-border rounded-xl shadow-lg overflow-hidden flex flex-col">
+                  <div className="bg-[#0B0D10] border-b-2 border-industrial-border p-4 flex justify-between items-center">
+                    <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
+                      <Terminal className="h-5 w-5 text-industrial-accent" />
+                      ACTIVE FLOOR ASSEMBLY QUEUE
+                    </h3>
+                    <span className="text-[10px] font-mono text-gray-500">SYNCED IN REAL-TIME</span>
+                  </div>
+
+                  <div className="p-6">
+                    <div className="w-full overflow-x-auto rounded border border-industrial-border">
+                      <table className="w-full text-left font-mono text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-[#0B0D10] text-[#868A94] uppercase tracking-wider text-[10px] border-b border-industrial-border">
+                            <th className="p-4">ORDER ID</th>
+                            <th className="p-4">RECIPE DETAILS</th>
+                            <th className="p-4">PROGRESS (PRODUCED/TARGET)</th>
+                            <th className="p-4">ASSIGNED LINE</th>
+                            <th className="p-4">STATUS</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-850">
+                          {orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="text-center p-8 text-gray-500 italic">
+                                NO ACTIVE FLOOR ORDERS. DISPATCH A RECIPE ABOVE TO START.
+                              </td>
+                            </tr>
+                          ) : (
+                            orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').map(o => (
+                              <tr key={o.id} className="hover:bg-[#12141C] transition-colors">
+                                <td className="p-4 font-bold text-white tracking-widest">{o.id}</td>
+                                <td className="p-4">
+                                  <div className="text-sm font-semibold text-[#D1D4DC]">{o.recipeName}</div>
+                                  <div className="text-xs text-gray-500">{o.recipeHindiName}</div>
+                                </td>
+                                <td className="p-4 w-64">
+                                  <div className="flex justify-between items-center mb-1 text-[10px] text-gray-400">
+                                    <span>{o.unitsProduced.toLocaleString()} units</span>
+                                    <span>{Math.round((o.unitsProduced / o.targetUnits) * 100)}%</span>
+                                  </div>
+                                  <div className="w-full bg-gray-900 h-2 rounded overflow-hidden border border-gray-800">
+                                    <div 
+                                      className={`h-full transition-all duration-300 ${o.status === 'In Progress' ? 'bg-[#FF6B00]' : 'bg-yellow-500'}`} 
+                                      style={{ width: `${Math.min(100, (o.unitsProduced / o.targetUnits) * 100)}%` }}
+                                    ></div>
+                                  </div>
+                                </td>
+                                <td className="p-4 text-gray-400 font-bold">{o.line || 'Not started'}</td>
+                                <td className="p-4">
+                                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[10.5px] font-bold border ${
+                                    o.status === 'In Progress' 
+                                      ? 'bg-[#FF6B00]/15 text-[#FF6B00] border-[#FF6B00]/20 glow-text-orange' 
+                                      : 'bg-yellow-500/15 text-yellow-500 border-yellow-500/20'
+                                  }`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full ${o.status === 'In Progress' ? 'bg-[#FF6B00] animate-pulse' : 'bg-yellow-500'}`}></span>
+                                    {o.status === 'In Progress' ? 'IN PROGRESS' : 'QUEUED / PENDING'}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* COLUMN 3: WORKER CONNECT QR CODE PORTAL */}
+              <div className="flex flex-col gap-6">
+                
+                <div className="bg-gradient-to-b from-industrial-card to-[#12151D] border-2 border-industrial-border rounded-xl p-6 flex flex-col gap-5 shadow-lg items-center text-center relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-industrial-accent to-blue-500"></div>
+                  
+                  <div className="p-2 border border-industrial-accent/20 bg-industrial-accent/5 rounded-lg mr-auto">
+                    <QrCode className="w-5 h-5 text-industrial-accent" />
                   </div>
                   
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono text-gray-400">FEEDBACK UPDATE INTERVAL: 1s</span>
+                  <div className="text-left w-full">
+                    <h3 className="text-base font-black tracking-tight text-white uppercase font-display">
+                      FLOOR WORKER LINKAGE
+                    </h3>
+                    <p className="text-xs text-gray-400 font-mono mt-1 leading-relaxed">
+                      Connect workers instantly. Scan this QR code with a tablet or mobile device. No logins or complications.
+                    </p>
+                  </div>
+
+                  {/* QR Image Render */}
+                  <div className="bg-[#161920] border-2 border-industrial-border p-4 rounded-xl shadow-inner relative group cursor-pointer hover:border-industrial-accent/40 transition-all duration-300">
+                    <img 
+                      src={qrCodeImageUrl} 
+                      alt="Worker Connection QR Link" 
+                      className="w-48 h-48 rounded-lg border border-gray-800 bg-white"
+                      onError={(e) => {
+                        // Fallback image in case of offline / no external network access
+                        e.currentTarget.style.display = 'none';
+                        const element = document.getElementById('qr-fallback');
+                        if (element) element.style.display = 'flex';
+                      }}
+                    />
+                    {/* Fallback mock QR code */}
+                    <div 
+                      id="qr-fallback" 
+                      className="w-48 h-48 rounded-lg border border-dashed border-industrial-accent/50 bg-[#0F1115] flex-col justify-center items-center gap-2 hidden"
+                    >
+                      <QrCode className="w-12 h-12 text-industrial-accent animate-pulse" />
+                      <span className="text-[10px] text-gray-500 font-mono">STATION MOCK LINK</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 w-full mt-1">
+                    <button
+                      onClick={handleCopyLink}
+                      className="w-full bg-[#202532] hover:bg-[#282F40] border border-gray-700 hover:border-gray-500 text-white transition py-2.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-2"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      {copiedLink ? 'UPLINK COPIED' : 'COPY CONNECTION LINK'}
+                    </button>
+
+                    <a
+                      href={workerUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full bg-industrial-accent hover:bg-cyan-500 text-black transition py-2.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-md shadow-cyan-950/20"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 text-black" strokeWidth={3} />
+                      Open Worker Portal (New Tab)
+                    </a>
+                  </div>
+
+                  <div className="bg-[#0F1115] p-3 rounded-lg border border-gray-850 text-[10.5px] leading-relaxed text-gray-550 font-mono text-left w-full">
+                    <span className="text-industrial-safety font-black block mb-0.5">💡 MULTI-TAB SIMULATOR:</span>
+                    Open the Worker Portal in another window/tab or scan on a mobile. Thanks to local storage sync, any batch update completed by the worker will instantly trigger updates on this admin screen!
                   </div>
                 </div>
 
-                <div className="p-6 flex-1 flex flex-col gap-6 bg-[#11141B]">
-                  {/* Gauge Display & Telemetry Indicator */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-                    
-                    {/* Glowing Digital Dashboard Counter */}
-                    <div className="bg-[#0B0D10] border border-industrial-border p-6 rounded relative overflow-hidden flex flex-col justify-center items-center h-48">
-                      <div className="absolute top-2 left-3 text-[10px] font-mono text-gray-500 uppercase tracking-widest">
-                        BATCH TOTAL CHILLER / UNIT RECIPE REGISTERED
-                      </div>
-                      <div className="absolute top-2 right-3">
-                        <Terminal className="text-industrial-accent/40 w-4.5 h-4.5" />
-                      </div>
-
-                      {/* Giant Number Ticker */}
-                      <span className={`text-4xl md:text-5xl font-black font-mono tracking-wider ${emergencyStatus ? 'text-industrial-danger glow-text-red' : 'text-industrial-accent glow-text-cyan'}`}>
-                        {activeShift ? simulatedUnits.toFixed(1) : "OFFLINE"}
-                      </span>
-                      
-                      <div className="mt-3 flex items-center gap-2">
-                        <span className="text-xs text-gray-400 font-mono">PRODUCT TARGET:</span>
-                        <span className="text-xs bg-industrial-accent/15 text-industrial-accent border border-industrial-accent/30 px-2 py-0.5 rounded font-mono font-bold">
-                          5,000 Units
-                        </span>
-                      </div>
-
-                      <div className="mt-1 w-full bg-gray-900 h-2 rounded overflow-hidden max-w-[80%] border border-gray-800">
-                        <div 
-                          className={`h-full transition-all duration-300 ${emergencyStatus ? 'bg-industrial-danger' : 'bg-industrial-accent'}`} 
-                          style={{ width: `${Math.min(100, (simulatedUnits / 5000) * 100)}%` }}
-                        ></div>
-                      </div>
-                    </div>
-
-                    {/* Simulation parameters panel */}
-                    <div className="flex flex-col gap-4 text-sm">
-                      <div className="bg-[#1D212B] p-4 border border-industrial-border rounded flex flex-col gap-2.5">
-                        <h4 className="text-xs font-bold font-mono tracking-widest text-[#FF6B00] uppercase">MOCK EXTRUDER CONTROLS</h4>
-                        
-                        {/* Selector Product */}
-                        <div>
-                          <label className="text-xs text-gray-400 font-mono block mb-1">Mixture Recipe Target:</label>
-                          <select 
-                            value={selectedSimProduct.id.toString()}
-                            onChange={(e) => {
-                              const found = products.find(p => p.id === e.target.value);
-                              if (found) setSelectedSimProduct(found);
-                            }}
-                            className="bg-[#0B0D10] text-white border border-industrial-border px-2 py-1.5 rounded w-full font-mono text-xs focus:ring-1 focus:ring-industrial-accent outline-none"
-                            disabled={!activeShift || emergencyStatus}
-                          >
-                            {products.map(p => (
-                              <option key={p.id.toString()} value={p.id.toString()}>
-                                {p.englishName} ({p.name}) [Target UPH: {p.targetUph}]
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Select Line */}
-                        <div>
-                          <label className="text-xs text-gray-400 font-mono block mb-1">Operational Area Line:</label>
-                          <select 
-                            value={simLine} 
-                            onChange={(e) => setSimLine(e.target.value)}
-                            className="bg-[#0B0D10] text-white border border-industrial-border px-2 py-1.5 rounded w-full font-mono text-xs focus:ring-1 focus:ring-industrial-accent outline-none"
-                            disabled={!activeShift || emergencyStatus}
-                          >
-                            <option value="Line A">Line A (Manual Assembly)</option>
-                            <option value="Line B">Line B (Auto Injection)</option>
-                            <option value="Line C">Line C (Extrusion Sinter)</option>
-                            <option value="CNC-04">CNC-04 Milling Node</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-
-                  </div>
-
-                  {/* Simulator Control Action Buttons */}
-                  <div className="border-t border-industrial-border pt-4 flex flex-wrap gap-3 items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <button 
-                        onClick={() => setIsSimulatorRunning(!isSimulatorRunning)}
-                        className={`px-4 py-2 rounded text-xs font-mono font-bold uppercase transition-all tracking-wider ${
-                          isSimulatorRunning && !emergencyStatus
-                            ? 'bg-yellow-500 text-black hover:bg-yellow-600'
-                            : 'bg-industrial-accent text-black hover:bg-[#00D0DF]'
-                        }`}
-                        disabled={!activeShift || emergencyStatus}
-                      >
-                        {isSimulatorRunning && !emergencyStatus ? '⏸ Pause Extruder' : '▶ Resume Extruder'}
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          if (activeShift) {
-                            setSimulatedUnits(prev => prev + 100);
-                          }
-                        }}
-                        className="bg-[#212735] hover:bg-[#2C3345] transition-all px-3 py-2 rounded text-xs font-mono text-white"
-                        disabled={!activeShift || emergencyStatus}
-                        title="Quick force increments (+100 units)"
-                      >
-                        ⚡ Simulate Flow +100
-                      </button>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => handleSimBatchSubmit('Success')}
-                        className="bg-industrial-success hover:bg-emerald-600 transition px-4 py-2 rounded text-xs text-black font-bold font-mono tracking-wide"
-                        disabled={!activeShift || emergencyStatus}
-                      >
-                        ✔️ Complete & Log Batch
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          const cause = prompt("Enter emergency stop issue description:", "Mechanical Jam");
-                          if (cause) triggerEmergencyStop(cause);
-                        }}
-                        className="bg-industrial-danger hover:bg-red-600 transition px-4 py-2 rounded text-xs text-white font-bold font-mono tracking-wide"
-                        disabled={!activeShift}
-                      >
-                        🚨 EMERGENCY STOP
-                      </button>
-                    </div>
-                  </div>
-
-                  {!activeShift && (
-                    <div className="bg-[#0B0D10]/95 absolute inset-0 flex flex-col justify-center items-center p-6 text-center z-20">
-                      <ShieldAlert className="w-12 h-12 text-industrial-safety mb-3 animate-pulse" />
-                      <h4 className="text-lg font-black text-white font-display">ROUTINE SECURITY LOCK ACTIVE</h4>
-                      <p className="text-xs text-gray-400 mt-1 max-w-[380px] leading-relaxed">
-                        To run live extruder telemetry feedback or log active batches, you must have an active Worker shifts signed in on the secure tablet workspace.
-                      </p>
-                      
-                      <button
-                        onClick={() => loginMockWorker("EMP-045")}
-                        className="mt-4 bg-industrial-accent text-black font-mono font-bold text-xs px-4 py-2 rounded hover:bg-cyan-400 transition"
-                      >
-                        ACTIVATE MOCK SHIFT LOGIN (EMP-045)
-                      </button>
-                    </div>
-                  )}
-
-                </div>
-              </div>
-
-              {/* FACTORY TELEMETRY FLOW PLOTS */}
-              <div className="bg-industrial-card border-2 border-industrial-border p-6 flex flex-col gap-4 shadow-lg bg-[#0F1115]">
-                <div className="flex justify-between items-center flex-wrap gap-2">
+                {/* QUICK RUN COMMANDS */}
+                <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded-xl flex flex-col gap-4 shadow-lg">
                   <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                    <TrendingUp className="h-5 w-5 text-industrial-accent" />
-                    LIVE PRODUCTION FLUX GRAPH (TARGET OUTLINE VS REAL)
+                    <Settings className="h-5 w-5 text-industrial-accent" />
+                    ADMIN COMMANDS
                   </h3>
-                  <span className="text-xs font-mono text-gray-500">REALTIME DATA SENSORS STREAMING</span>
-                </div>
 
-                {/* SVG Live Custom Chart to ensure zero dependency crash */}
-                <div className="w-full h-48 bg-[#0B0D10] border border-industrial-border rounded relative flex items-center justify-center p-2 overscroll-none">
-                  {logs.length === 0 ? (
-                    <div className="text-center p-4">
-                      <FolderPlaceholder />
-                      <p className="text-xs text-gray-500 font-mono mt-1">EMPTY HISTORY DATA STREAM: Log mock batches above to populate chart.</p>
-                    </div>
-                  ) : (
-                    <div className="w-full h-full flex flex-col justify-between">
-                      {/* Interactive mock SVG chart based on actual logs timeline */}
-                      <svg viewBox="0 0 500 120" className="w-full h-full overflow-visible">
-                        {/* Grid lines */}
-                        <line x1="0" y1="20" x2="500" y2="20" stroke="#1F2937" strokeWidth="0.5" strokeDasharray="3" />
-                        <line x1="0" y1="60" x2="500" y2="60" stroke="#1F2937" strokeWidth="0.5" strokeDasharray="3" />
-                        <line x1="0" y1="100" x2="500" y2="100" stroke="#1F2937" strokeWidth="0.5" strokeDasharray="3" />
-                        
-                        {/* Target rate line */}
-                        <line x1="0" y1="50" x2="500" y2="50" stroke="#FF6B00" strokeWidth="1" strokeDasharray="5" opacity="0.7" />
-                        <text x="495" y="45" fill="#FF6B00" fontSize="8" textAnchor="end" fontFamily="monospace">BATCH TARGET</text>
-
-                        {/* Production Path Plot */}
-                        <path
-                          d={`M ${logs.map((l, i) => {
-                            const x = Math.min(500, (i / Math.max(1, logs.length - 1)) * 480 + 10);
-                            // Scale outputs between 10 and 110 y range
-                            const percentageOfTarget = l.unitsProduced / Math.max(1, l.targetUnits);
-                            const y = Math.max(10, Math.min(110, 110 - (percentageOfTarget * 45)));
-                            return `${x} ${y}`;
-                          }).join(' L ')}`}
-                          fill="none"
-                          stroke="#00F0FF"
-                          strokeWidth="2.5"
-                          className="drop-shadow-[0_0_6px_rgba(0,240,255,0.4)]"
-                        />
-
-                        {/* Nodes */}
-                        {logs.map((l, i) => {
-                          const x = Math.min(500, (i / Math.max(1, logs.length - 1)) * 480 + 10);
-                          const percentageOfTarget = l.unitsProduced / Math.max(1, l.targetUnits);
-                          const y = Math.max(10, Math.min(110, 110 - (percentageOfTarget * 45)));
-                          const isSuccess = l.status === 'Success';
-                          return (
-                            <g key={l.batchId} className="group cursor-pointer">
-                              <circle
-                                cx={x}
-                                cy={y}
-                                r="4"
-                                fill={isSuccess ? "#10B981" : "#EF4444"}
-                                stroke="#FFFFFF"
-                                strokeWidth="1"
-                              />
-                              <text x={x} y={y - 8} fill="#FFFFFF" fontSize="6.5" textAnchor="middle" fontFamily="monospace" className="hidden group-hover:block bg-black px-1">
-                                {l.batchId}: {l.unitsProduced}
-                              </text>
-                            </g>
-                          );
-                        })}
-                      </svg>
-                      
-                      <div className="flex justify-between text-[9px] font-mono text-gray-500 border-t border-gray-900 pt-1">
-                        <span>LATEST DISCHARGES</span>
-                        <span>CHRONOLOGICAL STREAM (RIGHT IS OLDER)</span>
-                        <span>HISTORIC RECORDS</span>
+                  <div className="flex flex-col gap-3 font-mono">
+                    <button
+                      onClick={handleClearAllLogs}
+                      className="w-full text-left bg-[#1B1D25] hover:bg-industrial-danger/10 p-3 rounded border border-industrial-border hover:border-industrial-danger transition-all text-xs flex justify-between items-center group text-gray-300 hover:text-industrial-danger"
+                    >
+                      <div>
+                        <span className="font-bold block uppercase tracking-wide">CLEAR LOGS HISTORY</span>
+                        <span className="text-[10px] text-gray-500 group-hover:text-industrial-danger/75">Drops logged batch transactions</span>
                       </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex gap-4 items-center justify-center flex-wrap text-xs font-mono">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 bg-industrial-accent rounded"></span>
-                    <span className="text-gray-400">Production Yield</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-3.5 h-0.5 bg-industrial-safety border-b border-dashed border-industrial-safety w-6"></span>
-                    <span className="text-gray-400">Compliance Limit Metric</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 bg-industrial-success rounded-full"></span>
-                    <span className="text-gray-400">Success Run</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 bg-industrial-danger rounded-full"></span>
-                    <span className="text-gray-400">Failed Shutdown / Fault</span>
-                  </div>
-                </div>
-
-              </div>
-
-            </div>
-
-            {/* COLUMN 2: ACTIVE SHIFT & SYSTEM CONTROLS */}
-            <div className="flex flex-col gap-6">
-              
-              {/* CURRENT ACTIVE SHIFT CONTROLLER */}
-              <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded flex flex-col gap-4 shadow-lg">
-                <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                  <UserCheck className="h-5 w-5 text-industrial-safety" />
-                  ACTIVE WORKER SHIFT STATUS
-                </h3>
-
-                {activeShift ? (
-                  <div className="flex flex-col gap-4">
-                    <div className="bg-[#12151D] p-4 border border-industrial-border rounded flex flex-col gap-2 font-mono text-xs">
-                      <div className="flex justify-between py-1 border-b border-gray-800">
-                        <span className="text-gray-400">WORKER COMPID:</span>
-                        <span className="text-white font-bold">{activeShift.workerId}</span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-gray-800">
-                        <span className="text-gray-400">RESTRICTED PIN:</span>
-                        <span className="text-white">**** ({activeShift.pin})</span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-gray-800">
-                        <span className="text-gray-400">SIGN-IN LOG:</span>
-                        <span className="text-gray-300">{new Date(activeShift.loginTime).toLocaleTimeString()}</span>
-                      </div>
-                    </div>
-
-                    {/* Operational Guidelines Safety Check Status */}
-                    <div className="flex flex-col gap-2">
-                      <span className="text-xs font-mono font-bold text-gray-400 tracking-wider uppercase">SAFETY MANDATE COMPLIANCE:</span>
-                      
-                      <div className="flex items-center justify-between text-xs font-mono p-2.5 bg-gray-900 rounded border border-gray-850">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className="w-4 h-4 text-industrial-success" />
-                          <span>Helmet Checked</span>
-                        </div>
-                        <span className="text-industrial-success font-bold text-[10px]">VERIFIED</span>
-                      </div>
-
-                      <div className="flex items-center justify-between text-xs font-mono p-2.5 bg-gray-900 rounded border border-gray-850">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className="w-4 h-4 text-industrial-success" />
-                          <span>Clean Workplace Zone</span>
-                        </div>
-                        <span className="text-industrial-success font-bold text-[10px]">VERIFIED</span>
-                      </div>
-
-                      <div className="flex items-center justify-between text-xs font-mono p-2.5 bg-gray-900 rounded border border-gray-850">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className="w-4 h-4 text-industrial-success" />
-                          <span>Machine Check completed</span>
-                        </div>
-                        <span className="text-industrial-success font-bold text-[10px]">VERIFIED</span>
-                      </div>
-                    </div>
+                      <Trash2 className="w-4 h-4 text-gray-500 group-hover:text-industrial-danger" />
+                    </button>
 
                     <button
-                      onClick={logoutMockWorker}
-                      className="w-full bg-[#2E3545] hover:bg-industrial-danger hover:text-white transition py-2 rounded text-xs font-mono text-gray-300 font-bold uppercase tracking-wider mt-2 border border-gray-700 hover:border-industrial-danger"
+                      onClick={handleReseedData}
+                      className="w-full text-left bg-[#1B1D25] hover:bg-industrial-accent/10 p-3 rounded border border-industrial-border hover:border-industrial-accent transition-all text-xs flex justify-between items-center group text-gray-300 hover:text-industrial-accent"
                     >
-                      🚪 Terminate Active Shift
+                      <div>
+                        <span className="font-bold block uppercase tracking-wide">RESEED DEFAULT DATASETS</span>
+                        <span className="text-[10px] text-gray-500 group-hover:text-industrial-accent/75">Re-populates formulas & logs</span>
+                      </div>
+                      <RefreshCw className="w-4 h-4 text-gray-500 group-hover:text-industrial-accent" />
                     </button>
                   </div>
-                ) : (
-                  <div className="bg-[#0B0D10] border border-industrial-border p-5 rounded text-center">
-                    <p className="text-xs text-gray-400 mb-4 leading-relaxed font-mono">
-                      No shift records currently active. Trigger mock operator sign-in simulation to unlock control panel operations.
-                    </p>
-                    
-                    <div className="flex flex-col gap-2">
-                      <button
-                        onClick={() => loginMockWorker("EMP-045")}
-                        className="bg-industrial-accent hover:bg-cyan-500 text-black font-semibold text-xs font-mono py-2 rounded transition"
-                      >
-                        Sign In EMP-045 (Supervisor)
-                      </button>
-
-                      <button
-                        onClick={() => loginMockWorker("EMP-012")}
-                        className="bg-gray-800 hover:bg-gray-700 text-white text-xs font-mono py-2 rounded transition"
-                      >
-                        Sign In EMP-012 (Operator J)
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* ADMIN SYSTEM PREFERENCE / CORE ACTIONS */}
-              <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded flex flex-col gap-4 shadow-lg">
-                <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                  <Settings className="h-5 w-5 text-industrial-accent" />
-                  ADMIN CORE RUN COMMANDS
-                </h3>
-
-                <div className="flex flex-col gap-3 font-mono">
-                  {/* Clear history */}
-                  <button
-                    onClick={handleClearAllLogs}
-                    className="w-full text-left bg-[#1B1D25] hover:bg-industrial-danger/10 p-3 rounded border border-industrial-border hover:border-industrial-danger transition-all text-xs flex justify-between items-center group text-gray-300 hover:text-industrial-danger"
-                  >
-                    <div>
-                      <span className="font-bold block uppercase tracking-wide">CLEAR HISTORIC BATCH LOGS</span>
-                      <span className="text-[10px] text-gray-500 group-hover:text-industrial-danger/75">Executes remote clearAllBatchLogs()</span>
-                    </div>
-                    <Trash2 className="w-4 h-4 text-gray-500 group-hover:text-industrial-danger" />
-                  </button>
-
-                  {/* Seed Database */}
-                  <button
-                    onClick={() => {
-                      if (window.confirm("CONFIRMATION: Reset and database seed recipe arrays?")) {
-                        setProducts(INITIAL_PRODUCTS);
-                        setLogs(INITIAL_LOGS);
-                        alert("Database variables restored to initial setup.");
-                      }
-                    }}
-                    className="w-full text-left bg-[#1B1D25] hover:bg-industrial-accent/10 p-3 rounded border border-industrial-border hover:border-industrial-accent transition-all text-xs flex justify-between items-center group text-gray-300 hover:text-industrial-accent"
-                  >
-                    <div>
-                      <span className="font-bold block uppercase tracking-wide">RESEED DEFAULT DATASETS</span>
-                      <span className="text-[10px] text-gray-500 group-hover:text-industrial-accent/75">Re-populates default formulas & history</span>
-                    </div>
-                    <RefreshCw className="w-4 h-4 text-gray-500 group-hover:text-industrial-accent" />
-                  </button>
-
-                  <div className="bg-[#111319] p-3 rounded border border-industrial-border text-[11px] leading-relaxed text-gray-400">
-                    <span className="font-bold text-[#FF6B00] block mb-1">💡 TABLET COMPANION EXCURSIONS:</span>
-                    The companion console mimics data flows that happen on the Android factory tablet. In the Android App, operations insert logs into the Room database, which triggers state alterations.
-                  </div>
                 </div>
+
               </div>
 
             </div>
-
           </div>
         )}
 
@@ -915,14 +1192,14 @@ export default function App() {
               
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {products.length === 0 ? (
-                  <div className="col-span-full py-12 text-center text-gray-550 border border-dashed border-gray-800 rounded">
+                  <div className="col-span-full py-12 text-center text-gray-500 border border-dashed border-gray-800 rounded">
                     <FolderPlaceholder />
                     <p className="mt-2 text-sm text-gray-500 font-mono">NO ACTIVE FORMULAS IN DIRECTORY REGISTER</p>
                   </div>
                 ) : (
                   products.map(p => (
                     <div 
-                      key={p.id.toString()} 
+                      key={p.id} 
                       className="bg-[#12141C] border border-industrial-border rounded overflow-hidden flex flex-col relative"
                     >
                       {/* Product Accent visual banner */}
@@ -979,14 +1256,14 @@ export default function App() {
                         <div className="mt-auto border-t border-gray-850 pt-4 flex gap-2 justify-end">
                           <button
                             onClick={() => handleStartEditProduct(p)}
-                            className="text-gray-440 hover:text-industrial-accent font-semibold flex items-center gap-1 px-2.5 py-1.5 rounded bg-gray-900 hover:bg-gray-800 border border-gray-800 transition text-xs font-mono"
+                            className="text-gray-400 hover:text-industrial-accent font-semibold flex items-center gap-1 px-2.5 py-1.5 rounded bg-gray-900 hover:bg-gray-800 border border-gray-800 transition text-xs font-mono"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                             EDIT
                           </button>
                           
                           <button
-                            onClick={() => handleDeleteProduct(p.id.toString())}
+                            onClick={() => handleDeleteProduct(p.id)}
                             className="text-gray-450 hover:text-industrial-danger font-semibold flex items-center gap-1 px-2.5 py-1.5 rounded bg-gray-950 hover:bg-red-950/20 border border-gray-900 hover:border-industrial-danger/20 transition text-xs font-mono"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1017,7 +1294,6 @@ export default function App() {
 
               {/* Advanced search modifiers filters */}
               <div className="flex flex-wrap items-center gap-4 text-xs font-mono">
-                {/* Search query input */}
                 <input
                   type="text"
                   placeholder="QUERY BATCH OR MIXTURE..."
@@ -1026,7 +1302,6 @@ export default function App() {
                   className="bg-[#11141C] border border-industrial-border text-white rounded px-3 py-2 w-52 outline-none focus:border-industrial-accent"
                 />
 
-                {/* Dropdown line modifier */}
                 <select
                   value={lineFilter}
                   onChange={(e) => setLineFilter(e.target.value)}
@@ -1036,15 +1311,13 @@ export default function App() {
                   <option value="Line A">Line A (Manual Assembly)</option>
                   <option value="Line B">Line B (Auto Injection)</option>
                   <option value="Line C">Line C (Extrusion Sinter)</option>
-                  <option value="CNC-04">CNC-04 Milling Node</option>
                 </select>
 
-                {/* Master clear remote trigger */}
                 <button
                   onClick={handleClearAllLogs}
                   className="bg-industrial-danger/10 text-industrial-danger hover:bg-industrial-danger hover:text-white border border-industrial-danger/30 hover:border-industrial-danger transition px-4 py-2 rounded text-xs font-mono font-bold uppercase tracking-wider h-9"
                 >
-                  CLEAR TRANSACTION HISTORY
+                  CLEAR LOGS HISTORY
                 </button>
               </div>
             </div>
@@ -1060,7 +1333,7 @@ export default function App() {
                       <th className="p-4">MIXTURE (ENGLISH / HINDI)</th>
                       <th className="p-4">RUN SITE LINE</th>
                       <th className="p-4">UNITS OUTFLOW</th>
-                      <th className="p-4">SAFETY COGNIZANCES STATUS</th>
+                      <th className="p-4">STATUS</th>
                       <th className="p-4">LOG TIMESTAMP</th>
                     </tr>
                   </thead>
@@ -1068,7 +1341,7 @@ export default function App() {
                   <tbody className="divide-y divide-gray-850">
                     {filteredLogs.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="text-center p-8 text-gray-550 italic font-mono text-gray-500">
+                        <td colSpan={6} className="text-center p-8 text-gray-500 italic">
                           NO ACTIVE HISTORIES CAPTURED FOR FILTER DIRECTIVES
                         </td>
                       </tr>
@@ -1095,7 +1368,7 @@ export default function App() {
                               {l.status === 'Success' ? 'YIELD OK' : 'ALARM / FAULT'}
                             </span>
                           </td>
-                          <td className="p-4 text-gray-405 text-gray-400 font-medium">
+                          <td className="p-4 text-gray-400 font-medium">
                             {new Date(l.timestamp).toLocaleString()}
                           </td>
                         </tr>
@@ -1113,7 +1386,6 @@ export default function App() {
         {activeTab === 'link-integration' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
-            {/* COLUMN 1 & 2: CONVERTING LOCAL STORAGE ROOM REPOSITORY TO API ENDPOINTS */}
             <div className="lg:col-span-2 flex flex-col gap-6">
               
               <div className="bg-[#12151D] border-2 border-[#10B981]/40 p-6 rounded-lg flex flex-col gap-6 shadow-xl relative overflow-hidden">
@@ -1184,7 +1456,7 @@ export default function App() {
                     </button>
                   </div>
 
-                  <pre className="bg-[#0B0D10] text-[#A6E22E] p-4 rounded overflow-x-auto text-[11px] font-mono border border-gray-805 max-h-72 select-text text-left leading-relaxed">
+                  <pre className="bg-[#0B0D10] text-[#A6E22E] p-4 rounded overflow-x-auto text-[11px] font-mono border border-gray-800 max-h-72 select-text text-left leading-relaxed">
                     {SAMPLE_KTOR_CODE}
                   </pre>
                 </div>
@@ -1192,7 +1464,6 @@ export default function App() {
 
             </div>
 
-            {/* COLUMN 3: DIRECTORY EXCEL SCHEMA SCHEMES */}
             <div className="flex flex-col gap-6">
               
               <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded flex flex-col gap-4 shadow-lg">
@@ -1217,14 +1488,8 @@ export default function App() {
 );`}
                   </pre>
                 </div>
-
-                <div className="bg-[#0B0D10]/50 p-3 rounded text-[11.5px] leading-relaxed text-gray-400 font-mono">
-                  <span className="font-bold text-[#FF6B00] block mb-1">💡 CLOUD COMPATIBILITY PRO-TIP:</span>
-                  By importing standard SQL schemas identical to our Room DB entities onto a Supabase or Neon DB backend, we ensure zero discrepancy when marshaling values over REST wrappers.
-                </div>
               </div>
 
-              {/* Vercel build configs guidance */}
               <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded flex flex-col gap-4 shadow-lg">
                 <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
                   <Wifi className="h-5 w-5 text-[#10B981]" />
@@ -1268,7 +1533,6 @@ export default function App() {
 
             <form onSubmit={handleSaveProduct} className="p-6 flex flex-col gap-4 font-mono text-xs">
               
-              {/* Product ID field */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-gray-400 uppercase tracking-wide">MIXTURE SPECIFICATION CODE ID:</label>
                 <input
@@ -1281,7 +1545,6 @@ export default function App() {
                 />
               </div>
 
-              {/* English Name field */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-gray-400 uppercase tracking-wide">ENGLISH TECHNICAL NAME:</label>
                 <input
@@ -1293,7 +1556,6 @@ export default function App() {
                 />
               </div>
 
-              {/* Hindi Translation field */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-gray-400 uppercase tracking-wide">HINDI LAUNCHER LABEL TRANSLATION:</label>
                 <input
@@ -1305,7 +1567,6 @@ export default function App() {
                 />
               </div>
 
-              {/* Target units UPH field */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-gray-400 uppercase tracking-wide">TARGET OUTPUT FREQUENCY (UPH):</label>
                 <input
@@ -1316,7 +1577,6 @@ export default function App() {
                 />
               </div>
 
-              {/* Saturated Color code field */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-gray-400 uppercase tracking-wide">LINE ACCENT COLOR CHANNELS:</label>
                 <div className="flex gap-2">
@@ -1335,7 +1595,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Document manual file */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-gray-400 uppercase tracking-wide">MANUAL PDF FILE REGISTRATION (OPTIONAL):</label>
                 <input
@@ -1347,7 +1606,6 @@ export default function App() {
                 />
               </div>
 
-              {/* Trigger save button */}
               <button
                 type="submit"
                 className="bg-industrial-accent hover:bg-cyan-500 font-bold font-mono text-black py-2.5 rounded transition uppercase tracking-widest text-xs mt-3 shadow-md shadow-industrial-accent/25"
