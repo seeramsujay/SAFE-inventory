@@ -11,6 +11,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlin.random.Random
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 
 class IndustrialViewModel(
     application: Application,
@@ -294,10 +296,7 @@ class IndustrialViewModel(
                 """.trimIndent()
 
                 val client = okhttp3.OkHttpClient()
-                val body = okhttp3.RequestBody.create(
-                    okhttp3.MediaType.Companion.parse("application/json; charset=utf-8"),
-                    json
-                )
+                val body = json.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
                 
                 val urls = listOf(
                     "http://10.0.2.2:3000/api/logs",
