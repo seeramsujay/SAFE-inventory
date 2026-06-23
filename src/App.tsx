@@ -1,38 +1,3 @@
-/**
- * ============================================================================
- * FILE: App.tsx
- * PURPOSE: Central Administrative Companion Portal & Shift Operations Controller
- * PROJECT: Industrial Nexus - Hybrid Shop Floor & Cloud Reconciliation Suite
- *
- * DESCRIPTION:
- * This file serves as the main controller for the Industrial Nexus Companion
- * Dashboard. It mimics operational workflows that bridge the shop floor worker
- * layer (10-inch Android Tablet running SQLite Room) with the high-level
- * executive administration layer (Tally ERP & Cloud Admin Ledgers).
- * 
- * DESIGN DETAILS:
- * - High-contrast steel plate cyberpunk layout themed around industrial panel aesthetics.
- * - Multi-tab layout tracking live operations simulation, job queues, material ledgers,
- *   recipe catalogs, and code integration specs.
- * - Reactive state persistence mapped directly to localStorage keys.
- *
- * RELATIONSHIP TO BROADER ARCHITECTURE:
- * 1. Mocks SQLite schemas (Products Master, Production Jobs, Batch Logs, Inventory Ledgers).
- * 2. Emulates synchronization triggers where tablet batch logging synchronizes to cloud tables.
- * 3. Simulates material inventory loops: receipts arrival, BOM formula production depletion,
- *    and finished goods stock invoices from Tally ERP.
- * 
- * SYSTEM DATA FLOWS:
- * [Raw Material Silos] ──(Arrivals)──► [+] Silo Stock
- *          │
- *          ▼ (Worker Batch Completion via BOM Recipes)
- * [Raw Material Stocks] ──[-] Stock  ──►  [Finished Goods Stock] ──[+] Stock
- *                                                      │
- *                                                      ▼ (Tally Truck Dispatch)
- *                                              [Finished Goods Stock] ──[-] Stock
- * ============================================================================
- */
-
 import React, { useState, useEffect } from 'react';
 import { 
   Activity, 
@@ -57,12 +22,7 @@ import {
   BookOpen,
   Wifi,
   FileSpreadsheet,
-  Link2,
-  Scale,
-  Calendar,
-  Layers,
-  ArrowDownToLine,
-  Truck
+  Link2
 } from 'lucide-react';
 
 // Interfaces mirroring the Android Room schema
@@ -73,7 +33,6 @@ interface Product {
   targetUph: number;
   colorHex: string;
   isActive: boolean;
-  nominalBatchWeightKg: number; // 600 or 1000
   manualFileName?: string;
 }
 
@@ -98,40 +57,19 @@ interface ActiveShift {
   isActive: boolean;
 }
 
-interface ProductionJob {
-  jobId: string;
-  productKey: string;
-  totalBatchesScheduled: number;
-  batchesCompleted: number;
-  status: 'PENDING' | 'ACTIVE' | 'COMPLETED';
-  targetDemandTons: number;
-  excessYieldKg: number;
-  timestamp: number;
-}
-
-interface LedgerEntry {
-  entryId: string;
-  timestamp: number;
-  itemType: 'RAW_MATERIAL' | 'FINISHED_GOOD';
-  itemName: string; // e.g. "Maize", "Cream Special"
-  transactionType: 'ARRIVAL' | 'DEDUCTION_PRODUCTION' | 'DEDUCTION_DISPATCH' | 'OFFSET_ADJUSTMENT';
-  quantityKg: number; // positive or negative
-  description: string;
-}
-
 // Initial Data mirroring IndustrialRepository.kt
 const INITIAL_PRODUCTS: Product[] = [
-  { id: "PRD-001", name: "क्रीम स्पेशल", englishName: "Cream Special", targetUph: 1200, colorHex: "#00F0FF", isActive: true, nominalBatchWeightKg: 600, manualFileName: "Cream_Special_Ops_v2.pdf" },
-  { id: "PRD-002", name: "प्रीमियम प्लस", englishName: "Premium Plus", targetUph: 850, colorHex: "#FF6B00", isActive: true, nominalBatchWeightKg: 1000, manualFileName: "Premium_Plus_Safety.pdf" },
-  { id: "PRD-003", name: "मानक मिश्रण", englishName: "Standard Blend", targetUph: 2500, colorHex: "#10B981", isActive: true, nominalBatchWeightKg: 600 }
+  { id: "PRD-001", name: "क्रीम स्पेशल", englishName: "Cream Special", targetUph: 1200, colorHex: "#00F0FF", isActive: true, manualFileName: "Cream_Special_Ops_v2.pdf" },
+  { id: "PRD-002", name: "प्रीमियम प्लस", englishName: "Premium Plus", targetUph: 850, colorHex: "#FF6B00", isActive: true, manualFileName: "Premium_Plus_Safety.pdf" },
+  { id: "PRD-003", name: "मानक मिश्रण", englishName: "Standard Blend", targetUph: 2500, colorHex: "#10B981", isActive: true }
 ];
 
 const INITIAL_LOGS: BatchLog[] = [
-  { batchId: "B-4902", productNameHindi: "क्रीम स्पेशल", productNameEnglish: "Cream Special", line: "Line A", unitsProduced: 600, status: "Success", timestamp: Date.now() - 3 * 3600000, targetUnits: 600 },
-  { batchId: "B-4901", productNameHindi: "क्रीम स्पेशल", productNameEnglish: "Cream Special", line: "Line B", unitsProduced: 0, status: "Failed", timestamp: Date.now() - 6 * 3600000, targetUnits: 600 },
-  { batchId: "B-4900", productNameHindi: "प्रीमियम प्लस", productNameEnglish: "Premium Plus", line: "Line A", unitsProduced: 1000, status: "Success", timestamp: Date.now() - 12 * 3600000, targetUnits: 1000 },
-  { batchId: "B-8899", productNameHindi: "क्रीम स्पेशल", productNameEnglish: "Cream Special", line: "Line C", unitsProduced: 600, status: "Success", timestamp: Date.now() - 18 * 3600000, targetUnits: 600 },
-  { batchId: "B-8898", productNameHindi: "प्रीमियम प्लस", productNameEnglish: "Premium Plus", line: "Line A", unitsProduced: 0, status: "Failed", timestamp: Date.now() - 24 * 3600000, targetUnits: 1000 }
+  { batchId: "B-4902", productNameHindi: "क्रीम स्पेशल", productNameEnglish: "Cream Special", line: "Line A", unitsProduced: 12500, status: "Success", timestamp: Date.now() - 3 * 3600000, targetUnits: 12000 },
+  { batchId: "B-4901", productNameHindi: "क्रीम स्पेशल", productNameEnglish: "Cream Special", line: "Line B", unitsProduced: 2100, status: "Failed", timestamp: Date.now() - 6 * 3600000, targetUnits: 2500 },
+  { batchId: "B-4900", productNameHindi: "प्रीमियम प्लस", productNameEnglish: "Premium Plus", line: "Line A", unitsProduced: 12480, status: "Success", timestamp: Date.now() - 12 * 3600000, targetUnits: 12000 },
+  { batchId: "B-8899", productNameHindi: "क्रीम स्पेशल", productNameEnglish: "Cream Special", line: "Line C", unitsProduced: 8900, status: "Success", timestamp: Date.now() - 18 * 3600000, targetUnits: 9000 },
+  { batchId: "B-8898", productNameHindi: "प्रीमियम प्लस", productNameEnglish: "Premium Plus", line: "Line A", unitsProduced: 1200, status: "Failed", timestamp: Date.now() - 24 * 3600000, targetUnits: 2500 }
 ];
 
 const INITIAL_SHIFT: ActiveShift = {
@@ -144,121 +82,29 @@ const INITIAL_SHIFT: ActiveShift = {
   isActive: true
 };
 
-const BOM_RECIPES: Record<string, { maizeRatio: number; riceBranRatio: number; soyMealRatio: number }> = {
-  "PRD-001": { maizeRatio: 0.50, riceBranRatio: 0.30, soyMealRatio: 0.20 }, // Cream Special
-  "PRD-002": { maizeRatio: 0.40, riceBranRatio: 0.40, soyMealRatio: 0.20 }, // Premium Plus
-  "PRD-003": { maizeRatio: 0.60, riceBranRatio: 0.20, soyMealRatio: 0.20 }  // Standard Blend
-};
-
 export default function App() {
   // Persistence using localStorage
   const [products, setProducts] = useState<Product[]>(() => {
-    try {
-      const cached = localStorage.getItem('nexus_products');
-      if (!cached) return INITIAL_PRODUCTS;
-      const parsed = JSON.parse(cached);
-      if (!Array.isArray(parsed)) return INITIAL_PRODUCTS;
-      const validated = parsed.filter((p: any) => p && typeof p === 'object' && p.id && typeof p.id === 'string' && p.name && p.englishName && p.nominalBatchWeightKg);
-      return validated.length > 0 ? validated : INITIAL_PRODUCTS;
-    } catch (e) {
-      console.error("Failed to parse products from localStorage:", e);
-      return INITIAL_PRODUCTS;
-    }
+    const cached = localStorage.getItem('nexus_products');
+    return cached ? JSON.parse(cached) : INITIAL_PRODUCTS;
   });
 
   const [logs, setLogs] = useState<BatchLog[]>(() => {
-    try {
-      const cached = localStorage.getItem('nexus_logs');
-      if (!cached) return INITIAL_LOGS;
-      const parsed = JSON.parse(cached);
-      if (!Array.isArray(parsed)) return INITIAL_LOGS;
-      return parsed.filter((l: any) => l && typeof l === 'object' && l.batchId && typeof l.batchId === 'string' && l.productNameEnglish && l.productNameHindi);
-    } catch (e) {
-      console.error("Failed to parse logs from localStorage:", e);
-      return INITIAL_LOGS;
-    }
+    const cached = localStorage.getItem('nexus_logs');
+    return cached ? JSON.parse(cached) : INITIAL_LOGS;
   });
 
   const [activeShift, setActiveShift] = useState<ActiveShift | null>(() => {
-    try {
-      const cached = localStorage.getItem('nexus_active_shift');
-      if (!cached) return INITIAL_SHIFT;
-      const parsed = JSON.parse(cached);
-      if (parsed === null) return null;
-      if (typeof parsed !== 'object' || !parsed.workerId || !parsed.pin) return INITIAL_SHIFT;
-      return parsed as ActiveShift;
-    } catch (e) {
-      console.error("Failed to parse activeShift from localStorage:", e);
-      return INITIAL_SHIFT;
-    }
-  });
-
-  // NEW: Production Jobs queue
-  const [jobs, setJobs] = useState<ProductionJob[]>(() => {
-    try {
-      const cached = localStorage.getItem('nexus_jobs');
-      if (!cached) return [
-        { jobId: "JOB-101", productKey: "PRD-001", totalBatchesScheduled: 14, batchesCompleted: 14, status: "COMPLETED", targetDemandTons: 8, excessYieldKg: 400, timestamp: Date.now() - 24 * 3600000 },
-        { jobId: "JOB-102", productKey: "PRD-002", totalBatchesScheduled: 5, batchesCompleted: 2, status: "ACTIVE", targetDemandTons: 5, excessYieldKg: 0, timestamp: Date.now() - 3 * 3600000 }
-      ];
-      return JSON.parse(cached);
-    } catch (e) {
-      console.error("Failed to parse jobs:", e);
-      return [];
-    }
-  });
-
-  // NEW: Raw Materials Stock States (in kg)
-  const [rawMaizeStock, setRawMaizeStock] = useState<number>(() => {
-    const cached = localStorage.getItem('nexus_raw_maize');
-    return cached ? parseFloat(cached) : 45000;
-  });
-  const [rawRiceBranStock, setRawRiceBranStock] = useState<number>(() => {
-    const cached = localStorage.getItem('nexus_raw_rice_bran');
-    return cached ? parseFloat(cached) : 28000;
-  });
-  const [rawSoyMealStock, setRawSoyMealStock] = useState<number>(() => {
-    const cached = localStorage.getItem('nexus_raw_soy_meal');
-    return cached ? parseFloat(cached) : 18500;
-  });
-
-  // NEW: Finished Goods Stock States (in kg, mapping productKey -> stock)
-  const [finishedStock, setFinishedStock] = useState<Record<string, number>>(() => {
-    try {
-      const cached = localStorage.getItem('nexus_finished_stock');
-      if (!cached) return { "PRD-001": 12000, "PRD-002": 8500, "PRD-003": 4000 };
-      return JSON.parse(cached);
-    } catch (e) {
-      return { "PRD-001": 12000, "PRD-002": 8500, "PRD-003": 4000 };
-    }
-  });
-
-  // NEW: Inventory Ledger History
-  const [ledgerHistory, setLedgerHistory] = useState<LedgerEntry[]>(() => {
-    try {
-      const cached = localStorage.getItem('nexus_ledger_history');
-      if (!cached) return [
-        { entryId: "L-101", timestamp: Date.now() - 5 * 3600000, itemType: "RAW_MATERIAL", itemName: "Maize", transactionType: "ARRIVAL", quantityKg: 20000, description: "Bulk arrival from supplier (Receipt #R-892)" },
-        { entryId: "L-102", timestamp: Date.now() - 3 * 3600000, itemType: "RAW_MATERIAL", itemName: "Soy Meal", transactionType: "ARRIVAL", quantityKg: 10000, description: "Supplier delivery (Receipt #R-893)" },
-        { entryId: "L-103", timestamp: Date.now() - 2 * 3600000, itemType: "FINISHED_GOOD", itemName: "Cream Special", transactionType: "DEDUCTION_DISPATCH", quantityKg: -6000, description: "Dispatch Truck MH-12-Q-4530 (Tally invoice #INV-779)" },
-        { entryId: "L-104", timestamp: Date.now() - 1 * 3600000, itemType: "FINISHED_GOOD", itemName: "Premium Plus", transactionType: "DEDUCTION_DISPATCH", quantityKg: -4000, description: "Dispatch Truck KA-03-F-1209 (Tally invoice #INV-780)" }
-      ];
-      return JSON.parse(cached);
-    } catch (e) {
-      return [];
-    }
+    const cached = localStorage.getItem('nexus_active_shift');
+    return cached ? JSON.parse(cached) : INITIAL_SHIFT;
   });
 
   // Navigation state (Active tab)
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'jobs' | 'inventory' | 'products' | 'logs' | 'link-integration'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'logs' | 'link-integration'>('dashboard');
 
   // Search and Filter states
   const [searchLog, setSearchLog] = useState('');
   const [lineFilter, setLineFilter] = useState('ALL');
-  
-  // New ledger filter states
-  const [ledgerItemTypeFilter, setLedgerItemTypeFilter] = useState<'ALL' | 'RAW_MATERIAL' | 'FINISHED_GOOD'>('ALL');
-  const [ledgerSearch, setLedgerSearch] = useState('');
 
   // New product form states
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -267,52 +113,12 @@ export default function App() {
   const [newProductEnglishName, setNewProductEnglishName] = useState('');
   const [newProductTargetUph, setNewProductTargetUph] = useState(1000);
   const [newProductColor, setNewProductColor] = useState('#00F0FF');
-  const [newProductNominalWeight, setNewProductNominalWeight] = useState(600);
   const [newProductManual, setNewProductManual] = useState('');
   const [showAddProductModal, setShowAddProductModal] = useState(false);
 
-  // Job creator states
-  const [jobProductKey, setJobProductKey] = useState('PRD-001');
-  const [jobDemandTons, setJobDemandTons] = useState(5);
-
-  // Raw material arrival states
-  const [arrivalIngredient, setArrivalIngredient] = useState<'Maize' | 'Rice Bran' | 'Soy Meal'>('Maize');
-  const [arrivalTons, setArrivalTons] = useState(10);
-
-  // Tally Dispatch Simulation states
-  const [dispatchProductKey, setDispatchProductKey] = useState('PRD-001');
-  const [dispatchTons, setDispatchTons] = useState(4);
-
-  // Monthly Nullification inputs
-  const [nullifyPhysicalCounts, setNullifyPhysicalCounts] = useState<Record<string, string>>({
-    'Maize': '', 'Rice Bran': '', 'Soy Meal': '', 'PRD-001': '', 'PRD-002': '', 'PRD-003': ''
-  });
-
   // Machine Simulator states
-  const [simulatedUnits, setSimulatedUnits] = useState(0);
-  const [selectedSimProduct, setSelectedSimProduct] = useState<Product>(() => {
-    try {
-      const cachedProductsStr = localStorage.getItem('nexus_products');
-      let productsList = INITIAL_PRODUCTS;
-      if (cachedProductsStr) {
-        const parsed = JSON.parse(cachedProductsStr);
-        if (Array.isArray(parsed)) {
-          const validated = parsed.filter((p: any) => p && typeof p === 'object' && p.id && typeof p.id === 'string' && p.name && p.englishName && p.nominalBatchWeightKg);
-          if (validated.length > 0) productsList = validated;
-        }
-      }
-      return productsList[0] || INITIAL_PRODUCTS[0];
-    } catch (e) {
-      return INITIAL_PRODUCTS[0];
-    }
-  });
-
-  // Find active job if any
-  const activeJob = jobs.find(j => j.status === 'ACTIVE');
-  // If a job is active, override simulator product with the active job's product
-  const activeJobProduct = activeJob ? products.find(p => p.id === activeJob.productKey) : null;
-  const currentSimProduct = activeJobProduct || products.find(p => p.id === selectedSimProduct?.id) || products[0] || INITIAL_PRODUCTS[0];
-
+  const [simulatedUnits, setSimulatedUnits] = useState(4820);
+  const [selectedSimProduct, setSelectedSimProduct] = useState<Product>(products[0] || INITIAL_PRODUCTS[0]);
   const [simLine, setSimLine] = useState('Line A');
   const [isSimulatorRunning, setIsSimulatorRunning] = useState(true);
   const [emergencyStatus, setEmergencyStatus] = useState<boolean>(false);
@@ -324,7 +130,7 @@ export default function App() {
   // Copy success feedback state
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
 
-  // Sync state to local storage
+  // Sync to local storage
   useEffect(() => {
     localStorage.setItem('nexus_products', JSON.stringify(products));
   }, [products]);
@@ -336,30 +142,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('nexus_active_shift', JSON.stringify(activeShift));
   }, [activeShift]);
-
-  useEffect(() => {
-    localStorage.setItem('nexus_jobs', JSON.stringify(jobs));
-  }, [jobs]);
-
-  useEffect(() => {
-    localStorage.setItem('nexus_raw_maize', rawMaizeStock.toString());
-  }, [rawMaizeStock]);
-
-  useEffect(() => {
-    localStorage.setItem('nexus_raw_rice_bran', rawRiceBranStock.toString());
-  }, [rawRiceBranStock]);
-
-  useEffect(() => {
-    localStorage.setItem('nexus_raw_soy_meal', rawSoyMealStock.toString());
-  }, [rawSoyMealStock]);
-
-  useEffect(() => {
-    localStorage.setItem('nexus_finished_stock', JSON.stringify(finishedStock));
-  }, [finishedStock]);
-
-  useEffect(() => {
-    localStorage.setItem('nexus_ledger_history', JSON.stringify(ledgerHistory));
-  }, [ledgerHistory]);
 
   // Handle live clock update
   useEffect(() => {
@@ -374,290 +156,37 @@ export default function App() {
     if (!isSimulatorRunning || emergencyStatus || !activeShift) return;
     const interval = setInterval(() => {
       setSimulatedUnits(prev => {
-        // Calculate units/sec from product target UPH
-        const ratePerSec = currentSimProduct.targetUph / 3600;
+        const ratePerSec = selectedSimProduct.targetUph / 3600;
+        // Random fluctuation for realistic industrial dashboard
         const delta = Math.max(0.2, ratePerSec + (Math.random() - 0.4) * 0.5);
-        const next = prev + delta;
-        
-        // Auto trigger completion in simulator if target (nominal weight) is reached
-        const target = currentSimProduct.nominalBatchWeightKg;
-        if (next >= target) {
-          setTimeout(() => handleSimBatchSubmit('Success'), 10);
-          return 0;
-        }
-        return Math.round(next * 10) / 10;
+        return Math.round((prev + delta) * 10) / 10;
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [isSimulatorRunning, emergencyStatus, currentSimProduct, activeShift, jobs]);
+  }, [isSimulatorRunning, emergencyStatus, selectedSimProduct, activeShift]);
 
-  // CORE ADMIN ENGINE 1: Batch Demultiplication & Job Creation
-  const handleCreateJob = (e: React.FormEvent) => {
-    e.preventDefault();
-    const product = products.find(p => p.id === jobProductKey) || products[0] || INITIAL_PRODUCTS[0];
-    const nominalWeight = product.nominalBatchWeightKg;
-    const targetDemandKg = jobDemandTons * 1000;
-    
-    // Demultiplication calculation: Total Batches = Ceil(Target / Nominal)
-    const totalBatches = Math.ceil(targetDemandKg / nominalWeight);
-    const excessYieldKg = (totalBatches * nominalWeight) - targetDemandKg;
-
-    const newJob: ProductionJob = {
-      jobId: `JOB-${Math.floor(100 + Math.random() * 900)}`,
-      productKey: jobProductKey,
-      totalBatchesScheduled: totalBatches,
-      batchesCompleted: 0,
-      status: 'PENDING',
-      targetDemandTons: jobDemandTons,
-      excessYieldKg: excessYieldKg,
-      timestamp: Date.now()
-    };
-
-    setJobs(prev => {
-      const hasActive = prev.some(j => j.status === 'ACTIVE');
-      if (!hasActive) {
-        newJob.status = 'ACTIVE'; // Make active if no active job exists
-      }
-      return [...prev, newJob];
-    });
-
-    alert(`Job created! Demultiplexed ${jobDemandTons} Tons into ${totalBatches} batches of ${product.englishName}. Excess Yield: ${excessYieldKg} kg.`);
-  };
-
-  // CORE ADMIN ENGINE 2: Material Consumption (BOM) & Inventory Updates
+  // Trigger simulated batch completion
   const handleSimBatchSubmit = (status: 'Success' | 'Failed' = 'Success') => {
-    const activeJobIndex = jobs.findIndex(j => j.status === 'ACTIVE');
-    const currentActiveJob = activeJobIndex !== -1 ? jobs[activeJobIndex] : null;
-
-    const product = currentActiveJob
-      ? (products.find(p => p.id === currentActiveJob.productKey) || currentSimProduct)
-      : currentSimProduct;
-
-    const nominalWeight = product.nominalBatchWeightKg;
-    const batchId = `B-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    // Write to Batch Log vault history
+    const roundedUnits = Math.floor(simulatedUnits);
+    const targetDemand = 5000;
+    
     const newLog: BatchLog = {
-      batchId: batchId,
-      productNameHindi: product.name,
-      productNameEnglish: product.englishName,
+      batchId: `B-${Math.floor(1000 + Math.random() * 9000)}`,
+      productNameHindi: selectedSimProduct.name,
+      productNameEnglish: selectedSimProduct.englishName,
       line: simLine,
-      unitsProduced: status === 'Success' ? nominalWeight : 0,
+      unitsProduced: roundedUnits,
       status: status,
       timestamp: Date.now(),
-      targetUnits: nominalWeight
+      targetUnits: targetDemand
     };
+
     setLogs(prev => [newLog, ...prev]);
-
-    if (status === 'Success') {
-      // Fetch Recipe BOM formula ratios (default fallback to 50-30-20)
-      const recipe = BOM_RECIPES[product.id.toString()] || { maizeRatio: 0.50, riceBranRatio: 0.30, soyMealRatio: 0.20 };
-      const maizeDeduct = nominalWeight * recipe.maizeRatio;
-      const riceBranDeduct = nominalWeight * recipe.riceBranRatio;
-      const soyMealDeduct = nominalWeight * recipe.soyMealRatio;
-
-      // Deduct raw material stocks
-      setRawMaizeStock(m => Math.max(0, m - maizeDeduct));
-      setRawRiceBranStock(r => Math.max(0, r - riceBranDeduct));
-      setRawSoyMealStock(s => Math.max(0, s - soyMealDeduct));
-
-      // Add to finished goods stock
-      setFinishedStock(prev => ({
-        ...prev,
-        [product.id.toString()]: (prev[product.id.toString()] || 0) + nominalWeight
-      }));
-
-      // Append raw material & production logs to Ledger history
-      const newLedgerEntries: LedgerEntry[] = [
-        {
-          entryId: `L-${Math.floor(10000 + Math.random() * 90000)}`,
-          timestamp: Date.now(),
-          itemType: 'RAW_MATERIAL',
-          itemName: 'Maize',
-          transactionType: 'DEDUCTION_PRODUCTION',
-          quantityKg: -maizeDeduct,
-          description: `BOM Deduction: batch ${batchId} of ${product.englishName}`
-        },
-        {
-          entryId: `L-${Math.floor(10000 + Math.random() * 90000)}`,
-          timestamp: Date.now(),
-          itemType: 'RAW_MATERIAL',
-          itemName: 'Rice Bran',
-          transactionType: 'DEDUCTION_PRODUCTION',
-          quantityKg: -riceBranDeduct,
-          description: `BOM Deduction: batch ${batchId} of ${product.englishName}`
-        },
-        {
-          entryId: `L-${Math.floor(10000 + Math.random() * 90000)}`,
-          timestamp: Date.now(),
-          itemType: 'RAW_MATERIAL',
-          itemName: 'Soy Meal',
-          transactionType: 'DEDUCTION_PRODUCTION',
-          quantityKg: -soyMealDeduct,
-          description: `BOM Deduction: batch ${batchId} of ${product.englishName}`
-        },
-        {
-          entryId: `L-${Math.floor(10000 + Math.random() * 90000)}`,
-          timestamp: Date.now(),
-          itemType: 'FINISHED_GOOD',
-          itemName: product.englishName,
-          transactionType: 'ARRIVAL',
-          quantityKg: nominalWeight,
-          description: `Production Arrival: Batch ${batchId} logged`
-        }
-      ];
-      setLedgerHistory(prev => [...newLedgerEntries, ...prev]);
-
-      // If completing batches under an active job, increment progress
-      if (currentActiveJob) {
-        setJobs(prev => {
-          const updated = [...prev];
-          const job = updated[activeJobIndex];
-          job.batchesCompleted += 1;
-          
-          if (job.batchesCompleted >= job.totalBatchesScheduled) {
-            job.status = 'COMPLETED';
-            // Auto trigger activation of next pending job in queue
-            const nextPendingIndex = updated.findIndex(j => j.status === 'PENDING');
-            if (nextPendingIndex !== -1) {
-              updated[nextPendingIndex].status = 'ACTIVE';
-            }
-          }
-          return updated;
-        });
-      }
-    } else {
+    // Reset simulator units for next container batch
+    setSimulatedUnits(0);
+    if (status === 'Failed') {
       setIsSimulatorRunning(false);
     }
-    setSimulatedUnits(0);
-  };
-
-  // CORE ADMIN ENGINE 3: Raw Material Arrival Logging
-  const handleLogArrival = (e: React.FormEvent) => {
-    e.preventDefault();
-    const kg = arrivalTons * 1000;
-
-    if (arrivalIngredient === 'Maize') setRawMaizeStock(p => p + kg);
-    else if (arrivalIngredient === 'Rice Bran') setRawRiceBranStock(p => p + kg);
-    else if (arrivalIngredient === 'Soy Meal') setRawSoyMealStock(p => p + kg);
-
-    const entry: LedgerEntry = {
-      entryId: `L-${Math.floor(10000 + Math.random() * 90000)}`,
-      timestamp: Date.now(),
-      itemType: 'RAW_MATERIAL',
-      itemName: arrivalIngredient,
-      transactionType: 'ARRIVAL',
-      quantityKg: kg,
-      description: `Raw Material Arrival: Logged receipt of ${arrivalTons} Tons`
-    };
-    setLedgerHistory(prev => [entry, ...prev]);
-    alert(`Logged arrival of ${arrivalTons} Tons of ${arrivalIngredient}. Stock updated.`);
-  };
-
-  // CORE ADMIN ENGINE 4: Tally Finished Goods Dispatch Simulation
-  const handleSimulateDispatch = (e: React.FormEvent) => {
-    e.preventDefault();
-    const product = products.find(p => p.id === dispatchProductKey) || products[0] || INITIAL_PRODUCTS[0];
-    const weightKg = dispatchTons * 1000;
-
-    const currentStock = finishedStock[product.id.toString()] || 0;
-    if (currentStock < weightKg) {
-      if (!window.confirm(`Warning: Dispatch amount (${weightKg.toLocaleString()} kg) exceeds current warehouse stock (${currentStock.toLocaleString()} kg). Allow negative stock?`)) {
-        return;
-      }
-    }
-
-    setFinishedStock(prev => ({
-      ...prev,
-      [product.id.toString()]: Math.max(-50000, (prev[product.id.toString()] || 0) - weightKg)
-    }));
-
-    const entry: LedgerEntry = {
-      entryId: `L-${Math.floor(10000 + Math.random() * 90000)}`,
-      timestamp: Date.now(),
-      itemType: 'FINISHED_GOOD',
-      itemName: product.englishName,
-      transactionType: 'DEDUCTION_DISPATCH',
-      quantityKg: -weightKg,
-      description: `Tally Invoice Dispatch: Shipped ${dispatchTons} Tons MH-truck`
-    };
-    setLedgerHistory(prev => [entry, ...prev]);
-    alert(`Tally Integration: Dispatched ${dispatchTons} Tons of ${product.englishName}. stock depleted.`);
-  };
-
-  // CORE ADMIN ENGINE 5: Monthly Inventory Nullification Override
-  const handleTriggerNullification = (itemName: string, productId: string | null, isFinishedGood: boolean) => {
-    const key = productId || itemName;
-    const valueString = nullifyPhysicalCounts[key];
-    if (!valueString || isNaN(parseFloat(valueString))) {
-      alert("Please enter a valid physical stock count.");
-      return;
-    }
-
-    const physicalKg = parseFloat(valueString);
-    let theoreticalKg = 0;
-
-    if (!isFinishedGood) {
-      if (itemName === 'Maize') {
-        theoreticalKg = rawMaizeStock;
-        setRawMaizeStock(physicalKg);
-      } else if (itemName === 'Rice Bran') {
-        theoreticalKg = rawRiceBranStock;
-        setRawRiceBranStock(physicalKg);
-      } else if (itemName === 'Soy Meal') {
-        theoreticalKg = rawSoyMealStock;
-        setRawSoyMealStock(physicalKg);
-      }
-    } else if (productId) {
-      theoreticalKg = finishedStock[productId] || 0;
-      setFinishedStock(prev => ({
-        ...prev,
-        [productId]: physicalKg
-      }));
-    }
-
-    const offset = physicalKg - theoreticalKg;
-
-    const entry: LedgerEntry = {
-      entryId: `L-${Math.floor(10000 + Math.random() * 90000)}`,
-      timestamp: Date.now(),
-      itemType: isFinishedGood ? 'FINISHED_GOOD' : 'RAW_MATERIAL',
-      itemName: itemName,
-      transactionType: 'OFFSET_ADJUSTMENT',
-      quantityKg: offset,
-      description: `Monthly Stock Take Override. Theoretical: ${theoreticalKg.toLocaleString()} kg, Physical: ${physicalKg.toLocaleString()} kg, Offset Adjustment: ${offset >= 0 ? '+' : ''}${offset.toLocaleString()} kg`
-    };
-
-    setLedgerHistory(prev => [entry, ...prev]);
-
-    // Clear count input
-    setNullifyPhysicalCounts(prev => ({
-      ...prev,
-      [key]: ''
-    }));
-
-    alert(`Stock override successful! Calculated offset of ${offset >= 0 ? '+' : ''}${offset.toLocaleString()} kg logged to ledger.`);
-  };
-
-  // Delete production job from queue
-  const handleDeleteJob = (jobId: string) => {
-    if (window.confirm(`CONFIRMATION: Remove job ${jobId} from queue?`)) {
-      setJobs(prev => prev.filter(j => j.jobId !== jobId));
-    }
-  };
-
-  // Toggle active job state manually
-  const handleToggleJobState = (jobId: string, action: 'ACTIVATE' | 'PAUSE') => {
-    setJobs(prev => prev.map(j => {
-      if (j.jobId === jobId) {
-        return { ...j, status: action === 'ACTIVATE' ? 'ACTIVE' : 'PENDING' };
-      }
-      // If activating this job, pause any other active jobs
-      if (action === 'ACTIVATE' && j.status === 'ACTIVE') {
-        return { ...j, status: 'PENDING' };
-      }
-      return j;
-    }));
   };
 
   // Trigger factory shutdown / emergency stop
@@ -668,16 +197,16 @@ export default function App() {
       setDowntimeReasons(prev => [...prev, reason]);
     }
 
-    // Write failed log to db history
+    // Automatically write failed log to db history
     const failedLog: BatchLog = {
       batchId: `DWT-${Math.floor(100 + Math.random() * 900)}`,
       productNameHindi: "मशीन डाउनटाइम",
       productNameEnglish: `EMERGENCY STOP [${reason}]`,
       line: simLine,
-      unitsProduced: 0,
+      unitsProduced: Math.floor(simulatedUnits),
       status: 'Failed',
       timestamp: Date.now(),
-      targetUnits: currentSimProduct.nominalBatchWeightKg
+      targetUnits: 5000
     };
     setLogs(prev => [failedLog, ...prev]);
   };
@@ -708,14 +237,14 @@ export default function App() {
     setActiveShift(null);
   };
 
-  // Clear batch logs
+  // Clear batch logs (matching Android viewModel's clear BatchLogs action)
   const handleClearAllLogs = () => {
     if (window.confirm("CONFIRMATION REQUIRED: Clear all production histories on file?")) {
       setLogs([]);
     }
   };
 
-  // Delete product formula
+  // Delete product
   const handleDeleteProduct = (pId: string) => {
     if (window.confirm(`CONFIRM: Delete mixture recipe ${pId}?`)) {
       setProducts(prev => prev.filter(p => p.id !== pId));
@@ -726,39 +255,45 @@ export default function App() {
   const handleSaveProduct = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProductId || !newProductName || !newProductEnglishName) {
-      alert("Failure: Fields marked MANDATORY must be filled.");
+      alert("All fields are mandatory.");
       return;
     }
 
-    const newItem: Product = {
-      id: newProductId.toUpperCase().trim(),
-      name: newProductName.trim(),
-      englishName: newProductEnglishName.trim(),
-      targetUph: newProductTargetUph,
-      colorHex: newProductColor,
-      nominalBatchWeightKg: newProductNominalWeight,
-      isActive: true,
-      manualFileName: newProductManual.trim() || undefined
-    };
-
     if (editingProduct) {
-      setProducts(prev => prev.map(p => p.id === editingProduct.id ? newItem : p));
+      // Edit mode
+      setProducts(prev => prev.map(p => p.id === editingProduct.id ? {
+        ...p,
+        name: newProductName,
+        englishName: newProductEnglishName,
+        targetUph: newProductTargetUph,
+        colorHex: newProductColor,
+        manualFileName: newProductManual || undefined
+      } : p));
       setEditingProduct(null);
     } else {
-      if (products.some(p => p.id.toUpperCase() === newProductId.toUpperCase().trim())) {
-        alert("Failed: Mixture code ID already registered in SQLite master table.");
+      // Create mode
+      if (products.some(p => p.id.toLowerCase() === newProductId.toLowerCase())) {
+        alert("This mixture product ID already exists!");
         return;
       }
+      const newItem: Product = {
+        id: newProductId.toUpperCase(),
+        name: newProductName,
+        englishName: newProductEnglishName,
+        targetUph: newProductTargetUph,
+        colorHex: newProductColor,
+        isActive: true,
+        manualFileName: newProductManual || undefined
+      };
       setProducts(prev => [...prev, newItem]);
     }
 
-    // Reset fields
+    // Reset clean fields
     setNewProductId('');
     setNewProductName('');
     setNewProductEnglishName('');
     setNewProductTargetUph(1000);
     setNewProductColor('#00F0FF');
-    setNewProductNominalWeight(600);
     setNewProductManual('');
     setShowAddProductModal(false);
   };
@@ -771,12 +306,11 @@ export default function App() {
     setNewProductEnglishName(p.englishName);
     setNewProductTargetUph(p.targetUph);
     setNewProductColor(p.colorHex);
-    setNewProductNominalWeight(p.nominalBatchWeightKg);
     setNewProductManual(p.manualFileName || '');
     setShowAddProductModal(true);
   };
 
-  // Copy sample code helper
+  // Copy sample code help utils
   const triggerCopyCode = (text: string, identifier: string) => {
     navigator.clipboard.writeText(text);
     setCopiedSection(identifier);
@@ -786,36 +320,17 @@ export default function App() {
   // Analytical Metrics Computations
   const totalSuccessBatches = logs.filter(l => l.status === 'Success').length;
   const successRatio = logs.length > 0 ? Math.round((totalSuccessBatches / logs.length) * 100) : 100;
-  const totalUnits = logs.reduce((sum, l) => sum + (l?.unitsProduced || 0), 0);
+  const totalUnits = logs.reduce((sum, l) => sum + l.unitsProduced, 0);
   const activeWorkerName = activeShift?.workerId || "Offline";
 
   // Filter logs list
   const filteredLogs = logs.filter(l => {
-    if (!l) return false;
-    const batchId = l.batchId || '';
-    const nameEng = l.productNameEnglish || '';
-    const nameHin = l.productNameHindi || '';
-    const searchMatch = batchId.toLowerCase().includes(searchLog.toLowerCase()) || 
-                        nameEng.toLowerCase().includes(searchLog.toLowerCase()) ||
-                        nameHin.toLowerCase().includes(searchLog.toLowerCase());
+    const searchMatch = l.batchId.toLowerCase().includes(searchLog.toLowerCase()) || 
+                        l.productNameEnglish.toLowerCase().includes(searchLog.toLowerCase()) ||
+                        l.productNameHindi.toLowerCase().includes(searchLog.toLowerCase());
     const lineMatch = lineFilter === 'ALL' || l.line === lineFilter;
     return searchMatch && lineMatch;
   });
-
-  // Filter ledger list
-  const filteredLedger = ledgerHistory.filter(e => {
-    if (!e) return false;
-    const itemTypeMatch = ledgerItemTypeFilter === 'ALL' || e.itemType === ledgerItemTypeFilter;
-    const searchMatch = e.itemName.toLowerCase().includes(ledgerSearch.toLowerCase()) ||
-                        e.description.toLowerCase().includes(ledgerSearch.toLowerCase()) ||
-                        e.transactionType.toLowerCase().includes(ledgerSearch.toLowerCase());
-    return itemTypeMatch && searchMatch;
-  });
-
-  // Interactive Live Demultiplication calculation preview
-  const previewProduct = products.find(p => p.id === jobProductKey) || products[0] || INITIAL_PRODUCTS[0];
-  const previewBatchesCount = Math.ceil((jobDemandTons * 1000) / previewProduct.nominalBatchWeightKg);
-  const previewExcessYield = (previewBatchesCount * previewProduct.nominalBatchWeightKg) - (jobDemandTons * 1000);
 
   return (
     <div className="min-h-screen bg-[#0F1115] text-[#D1D4DC] flex flex-col font-sans selection:bg-[#00F0FF] selection:text-black">
@@ -823,7 +338,7 @@ export default function App() {
       <header className="border-b-2 border-industrial-border bg-[#0B0D10] text-[#E2E8F0] py-4 px-6 sticky top-0 z-50 shadow-lg select-none">
         <div className="max-w-[1500px] mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
           
-          {/* Logo Brand */}
+          {/* Logo Brand Brand */}
           <div className="flex items-center gap-3">
             <div className="p-2 border border-industrial-accent bg-industrial-accent/10 rounded">
               <Cpu className="h-6 w-6 text-industrial-accent animate-pulse" />
@@ -833,7 +348,7 @@ export default function App() {
                 <span className="text-xs bg-industrial-accent/20 text-industrial-accent px-2 py-0.5 rounded font-mono font-bold tracking-widest uppercase">
                   Companion Console
                 </span>
-                <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded font-mono">v1.5-Spec</span>
+                <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded font-mono">v1.2-Cloud</span>
               </div>
               <h1 className="text-xl md:text-2xl font-black font-display tracking-tight text-white flex items-center gap-2">
                 INDUSTRIAL NEXUS <span className="text-industrial-accent">●</span> <span className="text-gray-400 font-mono text-sm leading-none">ADMIN BOARD</span>
@@ -850,7 +365,7 @@ export default function App() {
               <span className="text-industrial-accent font-bold glow-text-cyan">{localTime}</span>
             </div>
 
-            {/* Socket Server Status */}
+            {/* Socket Server simulation status */}
             <div className="flex items-center gap-2 bg-[#141822] border border-industrial-border px-3 py-1.5 rounded">
               <Wifi className={`w-4 h-4 ${emergencyStatus ? 'text-industrial-danger animate-ping' : 'text-industrial-success animate-pulse'}`} />
               <span>ROOM-DB CONNECTION:</span>
@@ -859,7 +374,7 @@ export default function App() {
               </span>
             </div>
 
-            {/* Operator Tag */}
+            {/* Shift Tracker */}
             <div className="flex items-center gap-2 bg-[#141822] border border-industrial-border px-3 py-1.5 rounded">
               <UserCheck className="w-4 h-4 text-industrial-safety" />
               <span>OPERATOR:</span>
@@ -897,7 +412,7 @@ export default function App() {
         
         {/* 2. TAB TOGGLES BLOCK */}
         <div className="flex justify-between items-center flex-wrap gap-4 border-b border-industrial-border pb-2">
-          {/* Toggles */}
+          {/* Main Toggles */}
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setActiveTab('dashboard')}
@@ -907,27 +422,7 @@ export default function App() {
                   : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
               }`}
             >
-              📟 Live Operations
-            </button>
-            <button
-              onClick={() => setActiveTab('jobs')}
-              className={`px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all ${
-                activeTab === 'jobs'
-                  ? 'bg-industrial-accent text-black border-industrial-accent font-bold shadow-md shadow-industrial-accent/20'
-                  : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
-              }`}
-            >
-              🥞 Jobs Engine ({jobs.filter(j => j.status !== 'COMPLETED').length} Active)
-            </button>
-            <button
-              onClick={() => setActiveTab('inventory')}
-              className={`px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all ${
-                activeTab === 'inventory'
-                  ? 'bg-industrial-accent text-black border-industrial-accent font-bold shadow-md shadow-industrial-accent/20'
-                  : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
-              }`}
-            >
-              ⚖️ Inventory Ledgers
+              📟 Live Control Panel
             </button>
             <button
               onClick={() => setActiveTab('products')}
@@ -937,7 +432,7 @@ export default function App() {
                   : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
               }`}
             >
-              🧪 Recipes ({products.length})
+              🥞 Product Recipes ({products.length})
             </button>
             <button
               onClick={() => setActiveTab('logs')}
@@ -947,7 +442,7 @@ export default function App() {
                   : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
               }`}
             >
-              📜 Log Vaults
+              📜 Log Vault ({logs.length})
             </button>
             <button
               onClick={() => setActiveTab('link-integration')}
@@ -957,7 +452,7 @@ export default function App() {
                   : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
               }`}
             >
-              🔌 Mappings
+              🔌 Link Connection Architecture
             </button>
           </div>
 
@@ -968,7 +463,7 @@ export default function App() {
               SUCCESS RATE: {successRatio}%
             </span>
             <span className="bg-[#FF6B00]/15 text-[#FF6B00] border border-[#FF6B00]/30 px-2 py-1 rounded">
-              TOTAL BATCH OUTPUT: {totalUnits.toLocaleString()} kg
+              TOTAL UNIT WEIGHT: {totalUnits.toLocaleString()} units
             </span>
           </div>
         </div>
@@ -982,59 +477,29 @@ export default function App() {
             {/* COLUMN 1: LIVE HARDWARE SIMULATOR */}
             <div className="lg:col-span-2 flex flex-col gap-6">
               
-              <div className="bg-industrial-card border-2 border-industrial-border text-[#D1D4DC] overflow-hidden shadow-lg flex flex-col relative">
+              <div className="bg-industrial-card border-2 border-industrial-border text-[#D1D4DC] overflow-hidden shadow-lg flex flex-col">
                 <div className="bg-[#0B0D10] border-b-2 border-industrial-border p-4 flex justify-between items-center flex-wrap gap-2">
                   <div className="flex items-center gap-2">
                     <span className="relative flex h-3.5 w-3.5">
                       <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isSimulatorRunning && !emergencyStatus ? 'bg-industrial-accent' : 'bg-industrial-danger'} opacity-75`}></span>
                       <span className={`relative inline-flex rounded-full h-3.5 w-3.5 ${isSimulatorRunning && !emergencyStatus ? 'bg-industrial-accent' : 'bg-industrial-danger'}`}></span>
                     </span>
-                    <h2 className="text-lg font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                      <Activity className="w-5 h-5 text-industrial-accent" />
-                      {activeJob ? `RUNNING JOB: ${activeJob.jobId}` : 'MOCK EXTRUDER FLOW FEEDBACK'}
-                    </h2>
+                    <h2 className="text-lg font-black tracking-tight text-white uppercase font-display">SIMULATED EXTRUDER FEEDBACK (ACTIVE LINE)</h2>
                   </div>
                   
-                  <div className="flex items-center gap-2 font-mono text-xs text-gray-400">
-                    <span>LINE LOCK:</span>
-                    <span className="bg-[#1F2533] px-2.5 py-1 rounded border border-gray-800 text-white font-bold">{simLine}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-gray-400">FEEDBACK UPDATE INTERVAL: 1s</span>
                   </div>
                 </div>
 
                 <div className="p-6 flex-1 flex flex-col gap-6 bg-[#11141B]">
-                  
-                  {activeJob && (
-                    <div className="bg-industrial-accent/5 border border-industrial-accent/25 p-4 rounded flex items-center justify-between flex-wrap gap-4 font-mono text-xs">
-                      <div>
-                        <span className="text-gray-400 block">ACTIVE PRODUCTION RUN:</span>
-                        <span className="text-white font-bold block text-sm">{currentSimProduct.englishName} ({currentSimProduct.name})</span>
-                      </div>
-                      <div className="flex-1 max-w-[280px]">
-                        <div className="flex justify-between mb-1">
-                          <span>BATCH PROGRESS:</span>
-                          <span className="text-industrial-accent font-bold">{activeJob.batchesCompleted} / {activeJob.totalBatchesScheduled} done</span>
-                        </div>
-                        <div className="w-full bg-gray-900 h-2.5 rounded overflow-hidden border border-gray-850">
-                          <div 
-                            className="bg-industrial-accent h-full transition-all duration-300" 
-                            style={{ width: `${(activeJob.batchesCompleted / activeJob.totalBatchesScheduled) * 100}%` }}
-                          ></div>
-                        </div>
-                      </div>
-                      <div>
-                        <span className="text-gray-400 block">NOMINAL WEIGHT:</span>
-                        <span className="text-industrial-accent font-bold">{currentSimProduct.nominalBatchWeightKg} kg / batch</span>
-                      </div>
-                    </div>
-                  )}
-
                   {/* Gauge Display & Telemetry Indicator */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
                     
                     {/* Glowing Digital Dashboard Counter */}
                     <div className="bg-[#0B0D10] border border-industrial-border p-6 rounded relative overflow-hidden flex flex-col justify-center items-center h-48">
                       <div className="absolute top-2 left-3 text-[10px] font-mono text-gray-500 uppercase tracking-widest">
-                        FEEDBACK CHILLER / NOMINAL FLOW DISCHARGE (kg)
+                        BATCH TOTAL CHILLER / UNIT RECIPE REGISTERED
                       </div>
                       <div className="absolute top-2 right-3">
                         <Terminal className="text-industrial-accent/40 w-4.5 h-4.5" />
@@ -1042,76 +507,67 @@ export default function App() {
 
                       {/* Giant Number Ticker */}
                       <span className={`text-4xl md:text-5xl font-black font-mono tracking-wider ${emergencyStatus ? 'text-industrial-danger glow-text-red' : 'text-industrial-accent glow-text-cyan'}`}>
-                        {activeShift ? `${simulatedUnits.toFixed(1)} kg` : "OFFLINE"}
+                        {activeShift ? simulatedUnits.toFixed(1) : "OFFLINE"}
                       </span>
                       
                       <div className="mt-3 flex items-center gap-2">
-                        <span className="text-xs text-gray-400 font-mono">NOMINAL TARGET:</span>
+                        <span className="text-xs text-gray-400 font-mono">PRODUCT TARGET:</span>
                         <span className="text-xs bg-industrial-accent/15 text-industrial-accent border border-industrial-accent/30 px-2 py-0.5 rounded font-mono font-bold">
-                          {currentSimProduct.nominalBatchWeightKg} kg
+                          5,000 Units
                         </span>
                       </div>
 
-                      <div className="mt-2 w-full bg-gray-900 h-2 rounded overflow-hidden max-w-[80%] border border-gray-850">
+                      <div className="mt-1 w-full bg-gray-900 h-2 rounded overflow-hidden max-w-[80%] border border-gray-800">
                         <div 
                           className={`h-full transition-all duration-300 ${emergencyStatus ? 'bg-industrial-danger' : 'bg-industrial-accent'}`} 
-                          style={{ width: `${Math.min(100, (simulatedUnits / currentSimProduct.nominalBatchWeightKg) * 100)}%` }}
+                          style={{ width: `${Math.min(100, (simulatedUnits / 5000) * 100)}%` }}
                         ></div>
                       </div>
                     </div>
 
                     {/* Simulation parameters panel */}
-                    <div className="flex flex-col gap-4 text-sm font-mono">
-                      <div className="bg-[#1D212B] p-4 border border-industrial-border rounded flex flex-col gap-3">
-                        <h4 className="text-xs font-bold tracking-widest text-[#FF6B00] uppercase">BATCH SPECIFICATION</h4>
+                    <div className="flex flex-col gap-4 text-sm">
+                      <div className="bg-[#1D212B] p-4 border border-industrial-border rounded flex flex-col gap-2.5">
+                        <h4 className="text-xs font-bold font-mono tracking-widest text-[#FF6B00] uppercase">MOCK EXTRUDER CONTROLS</h4>
                         
-                        {/* Selector Product (Disabled if active job dictates production) */}
+                        {/* Selector Product */}
                         <div>
-                          <label className="text-[10px] text-gray-400 block mb-1">SELECTED RECIPE (FORMULA):</label>
-                          {activeJob ? (
-                            <div className="bg-[#0B0D10] text-[#00F0FF] border border-industrial-accent/30 px-2.5 py-1.5 rounded text-xs font-bold flex items-center justify-between">
-                              <span>{currentSimProduct.englishName} ({currentSimProduct.name})</span>
-                              <span className="text-[10px] bg-industrial-accent/15 px-1.5 py-0.5 rounded uppercase font-bold">Job Locked</span>
-                            </div>
-                          ) : (
-                            <select 
-                              value={selectedSimProduct.id.toString()}
-                              onChange={(e) => {
-                                const found = products.find(p => p.id === e.target.value);
-                                if (found) setSelectedSimProduct(found);
-                              }}
-                              className="bg-[#0B0D10] text-white border border-industrial-border px-2 py-1.5 rounded w-full text-xs focus:ring-1 focus:ring-industrial-accent outline-none"
-                              disabled={!activeShift || emergencyStatus}
-                            >
-                              {products.map(p => (
-                                <option key={p.id.toString()} value={p.id.toString()}>
-                                  {p.englishName} ({p.name}) [{p.nominalBatchWeightKg} kg]
-                                </option>
-                              ))}
-                            </select>
-                          )}
+                          <label className="text-xs text-gray-400 font-mono block mb-1">Mixture Recipe Target:</label>
+                          <select 
+                            value={selectedSimProduct.id.toString()}
+                            onChange={(e) => {
+                              const found = products.find(p => p.id === e.target.value);
+                              if (found) setSelectedSimProduct(found);
+                            }}
+                            className="bg-[#0B0D10] text-white border border-industrial-border px-2 py-1.5 rounded w-full font-mono text-xs focus:ring-1 focus:ring-industrial-accent outline-none"
+                            disabled={!activeShift || emergencyStatus}
+                          >
+                            {products.map(p => (
+                              <option key={p.id.toString()} value={p.id.toString()}>
+                                {p.englishName} ({p.name}) [Target UPH: {p.targetUph}]
+                              </option>
+                            ))}
+                          </select>
                         </div>
 
-                        {/* Nominal Ratios indicators */}
+                        {/* Select Line */}
                         <div>
-                          <label className="text-[10px] text-gray-400 block mb-1">NOMINAL RECIPE BOM BREAKDOWN:</label>
-                          <div className="grid grid-cols-3 gap-2 text-[10px] text-center">
-                            <div className="bg-[#0B0D10] p-1.5 rounded border border-gray-800">
-                              <span className="text-gray-500 block">MAIZE</span>
-                              <span className="text-white font-bold">{(BOM_RECIPES[currentSimProduct.id.toString()]?.maizeRatio * 100 || 50)}%</span>
-                            </div>
-                            <div className="bg-[#0B0D10] p-1.5 rounded border border-gray-800">
-                              <span className="text-gray-500 block">RICE BRAN</span>
-                              <span className="text-white font-bold">{(BOM_RECIPES[currentSimProduct.id.toString()]?.riceBranRatio * 100 || 30)}%</span>
-                            </div>
-                            <div className="bg-[#0B0D10] p-1.5 rounded border border-gray-800">
-                              <span className="text-gray-500 block">SOY MEAL</span>
-                              <span className="text-white font-bold">{(BOM_RECIPES[currentSimProduct.id.toString()]?.soyMealRatio * 100 || 20)}%</span>
-                            </div>
-                          </div>
+                          <label className="text-xs text-gray-400 font-mono block mb-1">Operational Area Line:</label>
+                          <select 
+                            value={simLine} 
+                            onChange={(e) => setSimLine(e.target.value)}
+                            className="bg-[#0B0D10] text-white border border-industrial-border px-2 py-1.5 rounded w-full font-mono text-xs focus:ring-1 focus:ring-industrial-accent outline-none"
+                            disabled={!activeShift || emergencyStatus}
+                          >
+                            <option value="Line A">Line A (Manual Assembly)</option>
+                            <option value="Line B">Line B (Auto Injection)</option>
+                            <option value="Line C">Line C (Extrusion Sinter)</option>
+                            <option value="CNC-04">CNC-04 Milling Node</option>
+                          </select>
                         </div>
                       </div>
                     </div>
+
                   </div>
 
                   {/* Simulator Control Action Buttons */}
@@ -1126,20 +582,20 @@ export default function App() {
                         }`}
                         disabled={!activeShift || emergencyStatus}
                       >
-                        {isSimulatorRunning && !emergencyStatus ? '⏸ Pause Flow' : '▶ Resume Flow'}
+                        {isSimulatorRunning && !emergencyStatus ? '⏸ Pause Extruder' : '▶ Resume Extruder'}
                       </button>
 
                       <button
                         onClick={() => {
                           if (activeShift) {
-                            setSimulatedUnits(prev => Math.min(currentSimProduct.nominalBatchWeightKg, prev + 100));
+                            setSimulatedUnits(prev => prev + 100);
                           }
                         }}
                         className="bg-[#212735] hover:bg-[#2C3345] transition-all px-3 py-2 rounded text-xs font-mono text-white"
                         disabled={!activeShift || emergencyStatus}
-                        title="Force 100 kg material output"
+                        title="Quick force increments (+100 units)"
                       >
-                        ⚡ Simulate Flow +100 kg
+                        ⚡ Simulate Flow +100
                       </button>
                     </div>
 
@@ -1149,12 +605,12 @@ export default function App() {
                         className="bg-industrial-success hover:bg-emerald-600 transition px-4 py-2 rounded text-xs text-black font-bold font-mono tracking-wide"
                         disabled={!activeShift || emergencyStatus}
                       >
-                        ✔️ Force Complete Batch
+                        ✔️ Complete & Log Batch
                       </button>
 
                       <button
                         onClick={() => {
-                          const cause = prompt("Enter emergency stop issue description:", "Extruder Overpressure");
+                          const cause = prompt("Enter emergency stop issue description:", "Mechanical Jam");
                           if (cause) triggerEmergencyStop(cause);
                         }}
                         className="bg-industrial-danger hover:bg-red-600 transition px-4 py-2 rounded text-xs text-white font-bold font-mono tracking-wide"
@@ -1169,7 +625,7 @@ export default function App() {
                     <div className="bg-[#0B0D10]/95 absolute inset-0 flex flex-col justify-center items-center p-6 text-center z-20">
                       <ShieldAlert className="w-12 h-12 text-industrial-safety mb-3 animate-pulse" />
                       <h4 className="text-lg font-black text-white font-display">ROUTINE SECURITY LOCK ACTIVE</h4>
-                      <p className="text-xs text-gray-400 mt-1 max-w-[380px] leading-relaxed font-mono">
+                      <p className="text-xs text-gray-400 mt-1 max-w-[380px] leading-relaxed">
                         To run live extruder telemetry feedback or log active batches, you must have an active Worker shifts signed in on the secure tablet workspace.
                       </p>
                       
@@ -1195,6 +651,7 @@ export default function App() {
                   <span className="text-xs font-mono text-gray-500">REALTIME DATA SENSORS STREAMING</span>
                 </div>
 
+                {/* SVG Live Custom Chart to ensure zero dependency crash */}
                 <div className="w-full h-48 bg-[#0B0D10] border border-industrial-border rounded relative flex items-center justify-center p-2 overscroll-none">
                   {logs.length === 0 ? (
                     <div className="text-center p-4">
@@ -1203,6 +660,7 @@ export default function App() {
                     </div>
                   ) : (
                     <div className="w-full h-full flex flex-col justify-between">
+                      {/* Interactive mock SVG chart based on actual logs timeline */}
                       <svg viewBox="0 0 500 120" className="w-full h-full overflow-visible">
                         {/* Grid lines */}
                         <line x1="0" y1="20" x2="500" y2="20" stroke="#1F2937" strokeWidth="0.5" strokeDasharray="3" />
@@ -1217,6 +675,7 @@ export default function App() {
                         <path
                           d={`M ${logs.map((l, i) => {
                             const x = Math.min(500, (i / Math.max(1, logs.length - 1)) * 480 + 10);
+                            // Scale outputs between 10 and 110 y range
                             const percentageOfTarget = l.unitsProduced / Math.max(1, l.targetUnits);
                             const y = Math.max(10, Math.min(110, 110 - (percentageOfTarget * 45)));
                             return `${x} ${y}`;
@@ -1243,31 +702,47 @@ export default function App() {
                                 stroke="#FFFFFF"
                                 strokeWidth="1"
                               />
+                              <text x={x} y={y - 8} fill="#FFFFFF" fontSize="6.5" textAnchor="middle" fontFamily="monospace" className="hidden group-hover:block bg-black px-1">
+                                {l.batchId}: {l.unitsProduced}
+                              </text>
                             </g>
                           );
                         })}
                       </svg>
-
-                      <div className="flex justify-between items-center text-[10px] text-gray-500 font-mono mt-1 border-t border-gray-900 pt-1">
+                      
+                      <div className="flex justify-between text-[9px] font-mono text-gray-500 border-t border-gray-900 pt-1">
+                        <span>LATEST DISCHARGES</span>
                         <span>CHRONOLOGICAL STREAM (RIGHT IS OLDER)</span>
-                        <div className="flex gap-3">
-                          <div className="flex items-center gap-1">
-                            <span className="w-2 h-2 bg-industrial-success rounded-full"></span>
-                            <span>Success Run</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className="w-2 h-2 bg-industrial-danger rounded-full"></span>
-                            <span>Failed Shutdown</span>
-                          </div>
-                        </div>
+                        <span>HISTORIC RECORDS</span>
                       </div>
                     </div>
                   )}
                 </div>
+
+                <div className="flex gap-4 items-center justify-center flex-wrap text-xs font-mono">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 bg-industrial-accent rounded"></span>
+                    <span className="text-gray-400">Production Yield</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3.5 h-0.5 bg-industrial-safety border-b border-dashed border-industrial-safety w-6"></span>
+                    <span className="text-gray-400">Compliance Limit Metric</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 bg-industrial-success rounded-full"></span>
+                    <span className="text-gray-400">Success Run</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 bg-industrial-danger rounded-full"></span>
+                    <span className="text-gray-400">Failed Shutdown / Fault</span>
+                  </div>
+                </div>
+
               </div>
+
             </div>
 
-            {/* COLUMN 2: ACTIVE SHIFT & INTEGRATIONS */}
+            {/* COLUMN 2: ACTIVE SHIFT & SYSTEM CONTROLS */}
             <div className="flex flex-col gap-6">
               
               {/* CURRENT ACTIVE SHIFT CONTROLLER */}
@@ -1355,53 +830,6 @@ export default function App() {
                 )}
               </div>
 
-              {/* TALLY DISPATCH TRUCK SIMULATOR */}
-              <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded flex flex-col gap-4 shadow-lg">
-                <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                  <Truck className="h-5 w-5 text-industrial-accent" />
-                  TALLY DISPATCH MOCK
-                </h3>
-                <p className="text-xs text-gray-400 font-mono">
-                  Simulates a truck dispatch event from Tally ERP, deducting finished goods inventory.
-                </p>
-
-                <form onSubmit={handleSimulateDispatch} className="flex flex-col gap-3 font-mono text-xs">
-                  <div>
-                    <label className="text-[10px] text-gray-500 block mb-1">PRODUCT TYPE:</label>
-                    <select
-                      value={dispatchProductKey}
-                      onChange={(e) => setDispatchProductKey(e.target.value)}
-                      className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 w-full focus:border-industrial-accent outline-none"
-                    >
-                      {products.map(p => (
-                        <option key={p.id.toString()} value={p.id.toString()}>
-                          {p.englishName} ({p.name})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] text-gray-500 block mb-1">DISPATCH VOLUME (TONS):</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0.1"
-                      value={dispatchTons}
-                      onChange={(e) => setDispatchTons(parseFloat(e.target.value) || 0)}
-                      className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 w-full focus:border-industrial-accent outline-none"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full bg-[#FF6B00] text-black hover:bg-orange-500 transition py-2 rounded font-bold uppercase tracking-wider"
-                  >
-                    🚛 SIMULATE DISPATCH SHIPMENT
-                  </button>
-                </form>
-              </div>
-
               {/* ADMIN SYSTEM PREFERENCE / CORE ACTIONS */}
               <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded flex flex-col gap-4 shadow-lg">
                 <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
@@ -1410,6 +838,7 @@ export default function App() {
                 </h3>
 
                 <div className="flex flex-col gap-3 font-mono">
+                  {/* Clear history */}
                   <button
                     onClick={handleClearAllLogs}
                     className="w-full text-left bg-[#1B1D25] hover:bg-industrial-danger/10 p-3 rounded border border-industrial-border hover:border-industrial-danger transition-all text-xs flex justify-between items-center group text-gray-300 hover:text-industrial-danger"
@@ -1421,25 +850,12 @@ export default function App() {
                     <Trash2 className="w-4 h-4 text-gray-500 group-hover:text-industrial-danger" />
                   </button>
 
+                  {/* Seed Database */}
                   <button
                     onClick={() => {
-                      if (window.confirm("CONFIRMATION: Reset database variables and stocks to default setups?")) {
+                      if (window.confirm("CONFIRMATION: Reset and database seed recipe arrays?")) {
                         setProducts(INITIAL_PRODUCTS);
                         setLogs(INITIAL_LOGS);
-                        setJobs([
-                          { jobId: "JOB-101", productKey: "PRD-001", totalBatchesScheduled: 14, batchesCompleted: 14, status: "COMPLETED", targetDemandTons: 8, excessYieldKg: 400, timestamp: Date.now() - 24 * 3600000 },
-                          { jobId: "JOB-102", productKey: "PRD-002", totalBatchesScheduled: 5, batchesCompleted: 2, status: "ACTIVE", targetDemandTons: 5, excessYieldKg: 0, timestamp: Date.now() - 3 * 3600000 }
-                        ]);
-                        setRawMaizeStock(45000);
-                        setRawRiceBranStock(28000);
-                        setRawSoyMealStock(18500);
-                        setFinishedStock({ "PRD-001": 12000, "PRD-002": 8500, "PRD-003": 4000 });
-                        setLedgerHistory([
-                          { entryId: "L-101", timestamp: Date.now() - 5 * 3600000, itemType: "RAW_MATERIAL", itemName: "Maize", transactionType: "ARRIVAL", quantityKg: 20000, description: "Bulk arrival from supplier (Receipt #R-892)" },
-                          { entryId: "L-102", timestamp: Date.now() - 3 * 3600000, itemType: "RAW_MATERIAL", itemName: "Soy Meal", transactionType: "ARRIVAL", quantityKg: 10000, description: "Supplier delivery (Receipt #R-893)" },
-                          { entryId: "L-103", timestamp: Date.now() - 2 * 3600000, itemType: "FINISHED_GOOD", itemName: "Cream Special", transactionType: "DEDUCTION_DISPATCH", quantityKg: -6000, description: "Dispatch Truck MH-12-Q-4530 (Tally invoice #INV-779)" },
-                          { entryId: "L-104", timestamp: Date.now() - 1 * 3600000, itemType: "FINISHED_GOOD", itemName: "Premium Plus", transactionType: "DEDUCTION_DISPATCH", quantityKg: -4000, description: "Dispatch Truck KA-03-F-1209 (Tally invoice #INV-780)" }
-                        ]);
                         alert("Database variables restored to initial setup.");
                       }
                     }}
@@ -1451,6 +867,11 @@ export default function App() {
                     </div>
                     <RefreshCw className="w-4 h-4 text-gray-500 group-hover:text-industrial-accent" />
                   </button>
+
+                  <div className="bg-[#111319] p-3 rounded border border-industrial-border text-[11px] leading-relaxed text-gray-400">
+                    <span className="font-bold text-[#FF6B00] block mb-1">💡 TABLET COMPANION EXCURSIONS:</span>
+                    The companion console mimics data flows that happen on the Android factory tablet. In the Android App, operations insert logs into the Room database, which triggers state alterations.
+                  </div>
                 </div>
               </div>
 
@@ -1459,508 +880,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: JOBS ENGINE */}
-        {activeTab === 'jobs' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* COLUMN 1: BATCH DEMULTIPLICATION ENGINE */}
-            <div className="lg:col-span-1 bg-industrial-card border-2 border-industrial-border p-6 rounded shadow-lg flex flex-col gap-4">
-              <div>
-                <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                  <Scale className="h-5 w-5 text-industrial-accent" />
-                  BATCH DEMULTIPLICATION ENGINE
-                </h3>
-                <p className="text-xs text-gray-400 font-mono mt-0.5">
-                  Converts aggregate order demands in Tons into discrete shop floor batch cycles.
-                </p>
-              </div>
-
-              <form onSubmit={handleCreateJob} className="flex flex-col gap-4 font-mono text-xs">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-gray-400">PRODUCT FORMULA:</label>
-                  <select
-                    value={jobProductKey}
-                    onChange={(e) => setJobProductKey(e.target.value)}
-                    className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 w-full focus:border-industrial-accent outline-none font-mono"
-                  >
-                    {products.map(p => (
-                      <option key={p.id.toString()} value={p.id.toString()}>
-                        {p.englishName} ({p.name}) [Nominal Weight: {p.nominalBatchWeightKg} kg]
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-gray-400">TARGET DEMAND (TONS):</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0.1"
-                    value={jobDemandTons}
-                    onChange={(e) => setJobDemandTons(parseFloat(e.target.value) || 0)}
-                    className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 w-full focus:border-industrial-accent outline-none font-mono"
-                  />
-                </div>
-
-                {/* Calculation Live Preview Card */}
-                <div className="bg-[#0B0D10] p-4 rounded border border-industrial-border flex flex-col gap-2 font-mono text-xs">
-                  <span className="text-[#FF6B00] font-bold block mb-1">📊 DEMULTIPLICATION PREVIEW:</span>
-                  <div className="flex justify-between border-b border-gray-900 py-1">
-                    <span>Target Mass:</span>
-                    <span className="text-white">{(jobDemandTons * 1000).toLocaleString()} kg ({jobDemandTons} Tons)</span>
-                  </div>
-                  <div className="flex justify-between border-b border-gray-900 py-1">
-                    <span>Nominal Weight:</span>
-                    <span className="text-white">{previewProduct.nominalBatchWeightKg} kg / batch</span>
-                  </div>
-                  <div className="flex justify-between border-b border-gray-900 py-1">
-                    <span>Total Batches:</span>
-                    <span className="text-industrial-accent font-bold">{previewBatchesCount} Batches</span>
-                  </div>
-                  <div className="flex justify-between py-1">
-                    <span>Flagged Excess:</span>
-                    <span className={`font-bold ${previewExcessYield > 0 ? 'text-yellow-500' : 'text-gray-400'}`}>
-                      {previewExcessYield} kg ({((previewBatchesCount * previewProduct.nominalBatchWeightKg) / 1000).toFixed(2)} Tons yield)
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  className="bg-industrial-accent hover:bg-cyan-500 text-black font-bold py-2 rounded transition uppercase tracking-widest text-xs mt-2"
-                >
-                  🚀 SCHEDULE & DEPLOY PRODUCTION JOB
-                </button>
-              </form>
-            </div>
-
-            {/* COLUMN 2: JOBS QUEUE DASHBOARD */}
-            <div className="lg:col-span-2 bg-industrial-card border-2 border-industrial-border p-6 rounded shadow-lg flex flex-col gap-4">
-              <div>
-                <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                  <Layers className="h-5 w-5 text-industrial-accent" />
-                  PRODUCTION JOBS QUEUE
-                </h3>
-                <p className="text-xs text-gray-400 font-mono mt-0.5">
-                  Monitor active and pending manufacturing runs on the shop floor.
-                </p>
-              </div>
-
-              {jobs.length === 0 ? (
-                <div className="text-center p-8 bg-[#0B0D10] border border-industrial-border rounded-md">
-                  <FolderPlaceholder />
-                  <p className="text-xs text-gray-500 font-mono mt-2">NO JOBS SCHEDULED: Use the demultiplication engine to schedule runs.</p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-4 max-h-[480px] overflow-y-auto">
-                  {jobs.map((j) => {
-                    const prod = products.find(p => p.id === j.productKey) || INITIAL_PRODUCTS[0];
-                    return (
-                      <div 
-                        key={j.jobId}
-                        className={`border rounded p-4 font-mono text-xs transition-all relative ${
-                          j.status === 'ACTIVE' 
-                            ? 'bg-industrial-accent/5 border-industrial-accent shadow-md' 
-                            : j.status === 'COMPLETED'
-                              ? 'bg-gray-950/20 border-gray-800 opacity-60'
-                              : 'bg-[#12151D] border-industrial-border'
-                        }`}
-                      >
-                        {/* Job status header */}
-                        <div className="flex justify-between items-center flex-wrap gap-2 mb-3">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-white">{j.jobId}</span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
-                              j.status === 'ACTIVE'
-                                ? 'bg-industrial-accent/15 text-industrial-accent border border-industrial-accent/35'
-                                : j.status === 'COMPLETED'
-                                  ? 'bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/35'
-                                  : 'bg-yellow-500/15 text-yellow-500 border border-yellow-500/35'
-                            }`}>
-                              {j.status}
-                            </span>
-                          </div>
-                          <span className="text-gray-500">{new Date(j.timestamp).toLocaleString()}</span>
-                        </div>
-
-                        {/* Details grid */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3 border-b border-gray-900 pb-3">
-                          <div>
-                            <span className="text-gray-500 block">PRODUCT:</span>
-                            <span className="text-white font-semibold">{prod.englishName}</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-500 block">DEMAND TARGET:</span>
-                            <span className="text-white">{j.targetDemandTons} Tons ({(j.targetDemandTons*1000).toLocaleString()} kg)</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-500 block">NOMINAL WEIGHT:</span>
-                            <span className="text-white">{prod.nominalBatchWeightKg} kg / batch</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-500 block">EXCESS YIELD:</span>
-                            <span className="text-yellow-500 font-bold">{j.excessYieldKg} kg</span>
-                          </div>
-                        </div>
-
-                        {/* Progress Bar */}
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="flex-1">
-                            <div className="flex justify-between text-[11px] mb-1">
-                              <span>BATCHES COMPLETED:</span>
-                              <span className="text-white font-bold">{j.batchesCompleted} / {j.totalBatchesScheduled}</span>
-                            </div>
-                            <div className="w-full bg-gray-900 h-2.5 rounded overflow-hidden border border-gray-850">
-                              <div 
-                                className={`h-full transition-all duration-300 ${
-                                  j.status === 'ACTIVE'
-                                    ? 'bg-industrial-accent'
-                                    : j.status === 'COMPLETED'
-                                      ? 'bg-industrial-success'
-                                      : 'bg-yellow-500'
-                                }`} 
-                                style={{ width: `${(j.batchesCompleted / j.totalBatchesScheduled) * 100}%` }}
-                              ></div>
-                            </div>
-                          </div>
-
-                          {/* Control Action Links */}
-                          <div className="flex gap-2">
-                            {j.status === 'PENDING' && (
-                              <button
-                                onClick={() => handleToggleJobState(j.jobId, 'ACTIVATE')}
-                                className="bg-industrial-accent text-black font-bold px-3 py-1.5 rounded hover:bg-cyan-500 transition text-[10px]"
-                              >
-                                ACTIVATE
-                              </button>
-                            )}
-                            {j.status === 'ACTIVE' && (
-                              <button
-                                onClick={() => handleToggleJobState(j.jobId, 'PAUSE')}
-                                className="bg-yellow-500 text-black font-bold px-3 py-1.5 rounded hover:bg-yellow-600 transition text-[10px]"
-                              >
-                                PAUSE
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleDeleteJob(j.jobId)}
-                              className="bg-gray-800 hover:bg-industrial-danger hover:text-white text-gray-400 p-1.5 rounded transition"
-                              title="Delete Job"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: INVENTORY LEDGER & MONTHLY NULLIFICATION */}
-        {activeTab === 'inventory' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* COLUMN 1: CURRENT RAW STOCK SILOS & GAUGE CARDS */}
-            <div className="lg:col-span-2 flex flex-col gap-6">
-              
-              {/* RAW SILO STOCKS */}
-              <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded shadow-lg flex flex-col gap-4">
-                <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                  <Database className="h-5 w-5 text-industrial-accent" />
-                  RAW INGREDIENT SILOS STOCK
-                </h3>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 font-mono text-xs">
-                  {/* Maize card */}
-                  <div className="bg-[#111319] p-4 border border-industrial-border rounded-md flex flex-col gap-2 relative">
-                    <span className="text-gray-400 font-bold block">1. CORN MAIZE SILO</span>
-                    <span className="text-2xl font-black text-white glow-text-cyan">{(rawMaizeStock/1000).toFixed(2)} T</span>
-                    <span className="text-[10px] text-gray-500">Total: {rawMaizeStock.toLocaleString()} kg</span>
-                    <div className="mt-2 w-full bg-gray-900 h-2 rounded overflow-hidden border border-gray-850">
-                      <div className="bg-[#00F0FF] h-full" style={{ width: `${Math.min(100, (rawMaizeStock / 100000) * 100)}%` }}></div>
-                    </div>
-                    <span className="text-[9px] text-gray-500 text-right mt-0.5">Capacity: 100 Tons</span>
-                  </div>
-
-                  {/* Rice bran card */}
-                  <div className="bg-[#111319] p-4 border border-industrial-border rounded-md flex flex-col gap-2 relative">
-                    <span className="text-gray-400 font-bold block">2. DE-OILED RICE BRAN</span>
-                    <span className="text-2xl font-black text-white glow-text-orange">{(rawRiceBranStock/1000).toFixed(2)} T</span>
-                    <span className="text-[10px] text-gray-500">Total: {rawRiceBranStock.toLocaleString()} kg</span>
-                    <div className="mt-2 w-full bg-gray-900 h-2 rounded overflow-hidden border border-gray-850">
-                      <div className="bg-[#FF6B00] h-full" style={{ width: `${Math.min(100, (rawRiceBranStock / 60000) * 100)}%` }}></div>
-                    </div>
-                    <span className="text-[9px] text-gray-500 text-right mt-0.5">Capacity: 60 Tons</span>
-                  </div>
-
-                  {/* Soy meal card */}
-                  <div className="bg-[#111319] p-4 border border-industrial-border rounded-md flex flex-col gap-2 relative">
-                    <span className="text-gray-400 font-bold block">3. DE-OILED SOY MEAL</span>
-                    <span className="text-2xl font-black text-white glow-text-success">{(rawSoyMealStock/1000).toFixed(2)} T</span>
-                    <span className="text-[10px] text-gray-500">Total: {rawSoyMealStock.toLocaleString()} kg</span>
-                    <div className="mt-2 w-full bg-gray-900 h-2 rounded overflow-hidden border border-gray-850">
-                      <div className="bg-[#10B981] h-full" style={{ width: `${Math.min(100, (rawSoyMealStock / 40000) * 100)}%` }}></div>
-                    </div>
-                    <span className="text-[9px] text-gray-500 text-right mt-0.5">Capacity: 40 Tons</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* FINISHED GOODS WAREHOUSE STOCK */}
-              <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded shadow-lg flex flex-col gap-4">
-                <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                  <Layers className="h-5 w-5 text-industrial-accent" />
-                  FINISHED GOODS CATTLE FEED WAREHOUSE STOCK
-                </h3>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 font-mono text-xs">
-                  {products.map(p => {
-                    const currentStockKg = finishedStock[p.id.toString()] || 0;
-                    return (
-                      <div key={p.id.toString()} className="bg-[#111319] p-4 border border-industrial-border rounded-md flex flex-col gap-2 relative">
-                        <div className="flex items-center gap-1.5">
-                          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: p.colorHex }}></span>
-                          <span className="text-gray-400 font-bold block uppercase">{p.englishName}</span>
-                        </div>
-                        <span className="text-2xl font-black text-white" style={{ textShadow: `0 0 8px ${p.colorHex}44` }}>
-                          {(currentStockKg/1000).toFixed(2)} T
-                        </span>
-                        <span className="text-[10px] text-gray-500">Total: {currentStockKg.toLocaleString()} kg</span>
-                        <span className="text-[9px] text-gray-400 mt-2">Nominal Pack: {p.nominalBatchWeightKg} kg / unit</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* MONTHLY STOCK OVERRIDE & NULLIFICATION TOOL */}
-              <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded shadow-lg flex flex-col gap-4">
-                <div>
-                  <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                    <Scale className="h-5 w-5 text-industrial-accent" />
-                    MONTHLY STOCK TAKE NULLIFICATION TOOL
-                  </h3>
-                  <p className="text-xs text-gray-400 font-mono mt-0.5">
-                    Align stock database values with manual physical checks, logging positive/negative offset ledger balances.
-                  </p>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-xs font-mono">
-                    <thead>
-                      <tr className="border-b border-industrial-border bg-[#0B0D10] text-gray-400">
-                        <th className="py-2.5 px-3">ITEM NAME</th>
-                        <th className="py-2.5 px-3">ITEM TYPE</th>
-                        <th className="py-2.5 px-3">THEORETICAL STOCK</th>
-                        <th className="py-2.5 px-3">PHYSICAL COUNT (kg)</th>
-                        <th className="py-2.5 px-3">COMPUTED OFFSET</th>
-                        <th className="py-2.5 px-3 text-center">ACTION</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-900 bg-[#12151D]/40">
-                      
-                      {/* Maize */}
-                      <tr className="hover:bg-gray-900/40">
-                        <td className="py-3 px-3 font-bold text-white">Maize</td>
-                        <td className="py-3 px-3 text-gray-400">RAW MATERIAL</td>
-                        <td className="py-3 px-3 text-gray-300">{rawMaizeStock.toLocaleString()} kg</td>
-                        <td className="py-2 px-3">
-                          <input 
-                            type="number"
-                            placeholder="e.g. 46000"
-                            value={nullifyPhysicalCounts['Maize'] || ''}
-                            onChange={(e) => setNullifyPhysicalCounts(prev => ({ ...prev, 'Maize': e.target.value }))}
-                            className="bg-[#0B0D10] text-white border border-gray-800 rounded px-2 py-1 w-28 focus:border-industrial-accent outline-none"
-                          />
-                        </td>
-                        <td className="py-3 px-3">
-                          {nullifyPhysicalCounts['Maize'] ? (
-                            <span className={parseFloat(nullifyPhysicalCounts['Maize']) - rawMaizeStock >= 0 ? 'text-industrial-success font-bold' : 'text-industrial-danger font-bold'}>
-                              {(parseFloat(nullifyPhysicalCounts['Maize']) - rawMaizeStock) >= 0 ? '+' : ''}
-                              {(parseFloat(nullifyPhysicalCounts['Maize']) - rawMaizeStock).toLocaleString()} kg
-                            </span>
-                          ) : '--'}
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <button
-                            onClick={() => handleTriggerNullification('Maize', null, false)}
-                            className="bg-gray-800 hover:bg-industrial-accent hover:text-black transition px-2.5 py-1 rounded text-[10px] font-bold"
-                          >
-                            FORCE RESET
-                          </button>
-                        </td>
-                      </tr>
-
-                      {/* Rice Bran */}
-                      <tr className="hover:bg-gray-900/40">
-                        <td className="py-3 px-3 font-bold text-white">Rice Bran</td>
-                        <td className="py-3 px-3 text-gray-400">RAW MATERIAL</td>
-                        <td className="py-3 px-3 text-gray-300">{rawRiceBranStock.toLocaleString()} kg</td>
-                        <td className="py-2 px-3">
-                          <input 
-                            type="number"
-                            placeholder="e.g. 27500"
-                            value={nullifyPhysicalCounts['Rice Bran'] || ''}
-                            onChange={(e) => setNullifyPhysicalCounts(prev => ({ ...prev, 'Rice Bran': e.target.value }))}
-                            className="bg-[#0B0D10] text-white border border-gray-800 rounded px-2 py-1 w-28 focus:border-industrial-accent outline-none"
-                          />
-                        </td>
-                        <td className="py-3 px-3">
-                          {nullifyPhysicalCounts['Rice Bran'] ? (
-                            <span className={parseFloat(nullifyPhysicalCounts['Rice Bran']) - rawRiceBranStock >= 0 ? 'text-industrial-success font-bold' : 'text-industrial-danger font-bold'}>
-                              {(parseFloat(nullifyPhysicalCounts['Rice Bran']) - rawRiceBranStock) >= 0 ? '+' : ''}
-                              {(parseFloat(nullifyPhysicalCounts['Rice Bran']) - rawRiceBranStock).toLocaleString()} kg
-                            </span>
-                          ) : '--'}
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <button
-                            onClick={() => handleTriggerNullification('Rice Bran', null, false)}
-                            className="bg-gray-800 hover:bg-industrial-accent hover:text-black transition px-2.5 py-1 rounded text-[10px] font-bold"
-                          >
-                            FORCE RESET
-                          </button>
-                        </td>
-                      </tr>
-
-                      {/* Soy Meal */}
-                      <tr className="hover:bg-gray-900/40">
-                        <td className="py-3 px-3 font-bold text-white">Soy Meal</td>
-                        <td className="py-3 px-3 text-gray-400">RAW MATERIAL</td>
-                        <td className="py-3 px-3 text-gray-300">{rawSoyMealStock.toLocaleString()} kg</td>
-                        <td className="py-2 px-3">
-                          <input 
-                            type="number"
-                            placeholder="e.g. 19000"
-                            value={nullifyPhysicalCounts['Soy Meal'] || ''}
-                            onChange={(e) => setNullifyPhysicalCounts(prev => ({ ...prev, 'Soy Meal': e.target.value }))}
-                            className="bg-[#0B0D10] text-white border border-gray-800 rounded px-2 py-1 w-28 focus:border-industrial-accent outline-none"
-                          />
-                        </td>
-                        <td className="py-3 px-3">
-                          {nullifyPhysicalCounts['Soy Meal'] ? (
-                            <span className={parseFloat(nullifyPhysicalCounts['Soy Meal']) - rawSoyMealStock >= 0 ? 'text-industrial-success font-bold' : 'text-industrial-danger font-bold'}>
-                              {(parseFloat(nullifyPhysicalCounts['Soy Meal']) - rawSoyMealStock) >= 0 ? '+' : ''}
-                              {(parseFloat(nullifyPhysicalCounts['Soy Meal']) - rawSoyMealStock).toLocaleString()} kg
-                            </span>
-                          ) : '--'}
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <button
-                            onClick={() => handleTriggerNullification('Soy Meal', null, false)}
-                            className="bg-gray-800 hover:bg-industrial-accent hover:text-black transition px-2.5 py-1 rounded text-[10px] font-bold"
-                          >
-                            FORCE RESET
-                          </button>
-                        </td>
-                      </tr>
-
-                      {/* Finished Products */}
-                      {products.map(p => {
-                        const stockKg = finishedStock[p.id.toString()] || 0;
-                        const key = p.id.toString();
-                        return (
-                          <tr key={key} className="hover:bg-gray-900/40 border-t border-gray-900">
-                            <td className="py-3 px-3 font-bold text-white uppercase flex items-center gap-1.5">
-                              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.colorHex }}></span>
-                              {p.englishName}
-                            </td>
-                            <td className="py-3 px-3 text-gray-400">FINISHED GOOD</td>
-                            <td className="py-3 px-3 text-gray-300">{stockKg.toLocaleString()} kg</td>
-                            <td className="py-2 px-3">
-                              <input 
-                                type="number"
-                                placeholder="e.g. 15000"
-                                value={nullifyPhysicalCounts[key] || ''}
-                                onChange={(e) => setNullifyPhysicalCounts(prev => ({ ...prev, [key]: e.target.value }))}
-                                className="bg-[#0B0D10] text-white border border-gray-800 rounded px-2 py-1 w-28 focus:border-industrial-accent outline-none"
-                              />
-                            </td>
-                            <td className="py-3 px-3">
-                              {nullifyPhysicalCounts[key] ? (
-                                <span className={parseFloat(nullifyPhysicalCounts[key]) - stockKg >= 0 ? 'text-industrial-success font-bold' : 'text-industrial-danger font-bold'}>
-                                  {(parseFloat(nullifyPhysicalCounts[key]) - stockKg) >= 0 ? '+' : ''}
-                                  {(parseFloat(nullifyPhysicalCounts[key]) - stockKg).toLocaleString()} kg
-                                </span>
-                              ) : '--'}
-                            </td>
-                            <td className="py-2 px-3 text-center">
-                              <button
-                                onClick={() => handleTriggerNullification(p.englishName, p.id.toString(), true)}
-                                className="bg-gray-800 hover:bg-industrial-accent hover:text-black transition px-2.5 py-1 rounded text-[10px] font-bold"
-                              >
-                                FORCE RESET
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-            </div>
-
-            {/* COLUMN 2: INVENTORY ACTIONS */}
-            <div className="lg:col-span-1 flex flex-col gap-6">
-              
-              {/* RAW MATERIAL ARRIVAL FORM */}
-              <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded shadow-lg flex flex-col gap-4">
-                <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                  <ArrowDownToLine className="h-5 w-5 text-industrial-accent" />
-                  LOG MATERIAL ARRIVAL
-                </h3>
-                <p className="text-xs text-gray-400 font-mono">
-                  Record bulk supplier ingredient shipments arriving at plant storage bins.
-                </p>
-
-                <form onSubmit={handleLogArrival} className="flex flex-col gap-4 font-mono text-xs">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-gray-400">INGREDIENT SILO:</label>
-                    <select
-                      value={arrivalIngredient}
-                      onChange={(e) => setArrivalIngredient(e.target.value as any)}
-                      className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 focus:border-industrial-accent outline-none font-mono"
-                    >
-                      <option value="Maize">Corn Maize Silo</option>
-                      <option value="Rice Bran">De-Oiled Rice Bran</option>
-                      <option value="Soy Meal">De-Oiled Soy Meal</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-gray-400">VOLUME ARRIVED (TONS):</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0.1"
-                      value={arrivalTons}
-                      onChange={(e) => setArrivalTons(parseFloat(e.target.value) || 0)}
-                      className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 w-full focus:border-industrial-accent outline-none font-mono"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="bg-industrial-accent hover:bg-cyan-500 text-black font-bold py-2 rounded transition uppercase tracking-widest text-xs mt-1"
-                  >
-                    💾 LOG SHIPMENT & ADD STOCK
-                  </button>
-                </form>
-              </div>
-
-            </div>
-
-          </div>
-        )}
-
-        {/* TAB 4: PRODUCT MIXTURE FORMULAS CATALOG */}
+        {/* TAB 2: PRODUCT MIXTURE FORMULAS CATALOG */}
         {activeTab === 'products' && (
           <div className="bg-industrial-card border-2 border-industrial-border rounded-lg overflow-hidden shadow-lg flex flex-col">
             <div className="bg-[#0B0D10] border-b-2 border-industrial-border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1980,261 +900,305 @@ export default function App() {
                   setNewProductEnglishName("");
                   setNewProductTargetUph(1200);
                   setNewProductColor("#00F0FF");
-                  setNewProductNominalWeight(600);
                   setNewProductManual("");
                   setShowAddProductModal(true);
                 }}
-                className="bg-industrial-accent hover:bg-cyan-400 text-black transition px-4 py-2 rounded text-xs font-mono font-bold tracking-wide flex items-center gap-1.5"
+                className="bg-industrial-accent text-black hover:bg-cyan-500 font-mono font-bold text-xs px-4 py-2 rounded flex items-center gap-2 transition ml-auto"
               >
-                <Plus className="w-4 h-4" /> REGISTER NEW FORMULA
+                <Plus className="w-4 h-4 text-black" strokeWidth={3} />
+                REGISTER NEW MIXTURE FORMULA
               </button>
             </div>
 
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 bg-[#11141B]">
-              {products.map(p => (
-                <div 
-                  key={p.id.toString()} 
-                  className="bg-[#12141C] border border-industrial-border rounded overflow-hidden flex flex-col relative"
-                >
-                  <div className="h-2 w-full" style={{ backgroundColor: p.colorHex }}></div>
-                  
-                  <div className="p-5 flex-1 flex flex-col gap-4 font-mono text-xs">
-                    <div className="flex justify-between items-start gap-2">
-                      <div>
-                        <span className="text-[10px] text-gray-500 uppercase">Mixture ID</span>
-                        <h3 className="text-base font-bold text-white tracking-wide">{p.id}</h3>
-                      </div>
-                      <span className="bg-gray-800 text-gray-400 px-2 py-0.5 rounded text-[10px]">Active</span>
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      <span className="text-gray-500 text-[10px] uppercase">Formulation Label</span>
-                      <span className="text-sm font-bold text-white">{p.englishName}</span>
-                      <span className="text-gray-300 text-xs font-display">{p.name} (Hindi Translate)</span>
-                    </div>
-
-                    <div className="bg-[#0B0D10] p-3 rounded border border-gray-850 flex flex-col gap-2 font-mono text-[11px]">
-                      <div className="flex justify-between text-gray-400">
-                        <span>NOMINAL WEIGHT:</span>
-                        <span className="text-white font-bold">{p.nominalBatchWeightKg} kg</span>
-                      </div>
-                      <div className="flex justify-between text-gray-400">
-                        <span>TARGET FREQ:</span>
-                        <span className="text-white font-bold">{p.targetUph} UPH</span>
-                      </div>
-                      <div className="flex justify-between text-gray-400">
-                        <span>SAFETY MANUAL:</span>
-                        <span className="text-industrial-accent underline truncate max-w-[120px]" title={p.manualFileName || 'N/A'}>
-                          {p.manualFileName || 'None Configured'}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2.5 mt-auto pt-2 border-t border-gray-900">
-                      <button
-                        onClick={() => handleStartEditProduct(p)}
-                        className="flex-1 bg-gray-850 hover:bg-gray-850/80 text-gray-300 py-1.5 rounded transition flex items-center justify-center gap-1 border border-gray-700"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" /> Edit Formula
-                      </button>
-                      <button
-                        onClick={() => handleDeleteProduct(p.id.toString())}
-                        className="bg-gray-850 hover:bg-industrial-danger hover:text-white text-gray-500 py-1.5 px-3 rounded transition border border-gray-700 hover:border-industrial-danger"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 5: LOG VAULT & INVENTORY LEDGER HISTORY */}
-        {activeTab === 'logs' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* COLUMN 1: PRODUCTION BATCH LOG HISTORY */}
-            <div className="lg:col-span-1 bg-industrial-card border-2 border-industrial-border rounded-lg overflow-hidden shadow-lg flex flex-col">
-              <div className="bg-[#0B0D10] border-b-2 border-industrial-border p-4 flex flex-col gap-3">
-                <h2 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                  <FileSpreadsheet className="text-industrial-accent h-5 w-5" />
-                  BATCH TRANSACTION HISTORY
-                </h2>
-                
-                {/* Search / filter inputs */}
-                <div className="flex flex-col gap-2 font-mono text-xs">
-                  <input
-                    type="text"
-                    placeholder="Search Batch ID or Product Name..."
-                    value={searchLog}
-                    onChange={(e) => setSearchLog(e.target.value)}
-                    className="bg-[#12151D] text-white border border-gray-850 rounded px-2.5 py-1.5 focus:border-industrial-accent outline-none"
-                  />
-                  <select
-                    value={lineFilter}
-                    onChange={(e) => setLineFilter(e.target.value)}
-                    className="bg-[#12151D] text-white border border-gray-850 rounded px-2 py-1.5 focus:border-industrial-accent outline-none"
-                  >
-                    <option value="ALL">All Operational Lines</option>
-                    <option value="Line A">Line A (Manual Assembly)</option>
-                    <option value="Line B">Line B (Auto Injection)</option>
-                    <option value="Line C">Line C (Extrusion Sinter)</option>
-                    <option value="CNC-04">CNC-04 Milling Node</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Batches Table List */}
-              <div className="flex-1 bg-[#11141B] max-h-[500px] overflow-y-auto">
-                {filteredLogs.length === 0 ? (
-                  <div className="text-center p-8">
+            {/* List products */}
+            <div className="p-6">
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {products.length === 0 ? (
+                  <div className="col-span-full py-12 text-center text-gray-550 border border-dashed border-gray-800 rounded">
                     <FolderPlaceholder />
-                    <p className="text-xs text-gray-500 font-mono mt-2">NO RECORDS LOCATED: Try clearing searches or seed database above.</p>
+                    <p className="mt-2 text-sm text-gray-500 font-mono">NO ACTIVE FORMULAS IN DIRECTORY REGISTER</p>
                   </div>
                 ) : (
-                  <div className="flex flex-col divide-y divide-gray-900 font-mono text-xs">
-                    {filteredLogs.map(l => (
-                      <div key={l.batchId} className="p-4 hover:bg-[#161A24] transition flex flex-col gap-2">
-                        <div className="flex justify-between items-center">
-                          <span className="font-bold text-white">{l.batchId}</span>
-                          <span className={`px-2 py-0.5 rounded font-bold text-[9px] uppercase ${
-                            l.status === 'Success' 
-                              ? 'bg-industrial-success/15 text-industrial-success border border-industrial-success/30' 
-                              : 'bg-industrial-danger/15 text-industrial-danger border border-industrial-danger/30'
+                  products.map(p => (
+                    <div 
+                      key={p.id.toString()} 
+                      className="bg-[#12141C] border border-industrial-border rounded overflow-hidden flex flex-col relative"
+                    >
+                      {/* Product Accent visual banner */}
+                      <div className="h-2" style={{ backgroundColor: p.colorHex }}></div>
+                      
+                      {/* Details Box */}
+                      <div className="p-5 flex-1 flex flex-col gap-4">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-[10px] font-mono text-[#00F0FF] bg-industrial-accent/10 px-2 py-0.5 rounded border border-industrial-accent/20">
+                              {p.id}
+                            </span>
+                            <h3 className="text-lg font-extrabold text-white mt-1.5">{p.englishName}</h3>
+                            <h4 className="text-sm text-gray-400 font-medium font-display leading-tight">{p.name}</h4>
+                          </div>
+
+                          <span className={`text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full ${
+                            p.isActive 
+                              ? 'bg-industrial-success/10 text-industrial-success border border-industrial-success/20' 
+                              : 'bg-gray-800 text-gray-400 border border-gray-700'
                           }`}>
-                            {l.status}
+                            {p.isActive ? 'RUN READY' : 'OFFLINE'}
                           </span>
                         </div>
-                        <div className="flex justify-between text-gray-400 text-[10px]">
-                          <span>RECIPE: {l.productNameEnglish}</span>
-                          <span>{l.line}</span>
+
+                        <div className="border-t border-gray-850 pt-3 flex flex-col gap-1.5 text-xs font-mono">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">TARGET UPH OUTFLOW:</span>
+                            <span className="text-white font-bold">{p.targetUph} Units/Hr</span>
+                          </div>
+                          
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-500">DOCUMENT MANUAL:</span>
+                            {p.manualFileName ? (
+                              <span className="text-industrial-accent flex items-center gap-1 text-[11px]" title={p.manualFileName}>
+                                <BookOpen className="w-3.5 h-3.5" />
+                                {p.manualFileName}
+                              </span>
+                            ) : (
+                              <span className="text-gray-600 text-[11px]">Unregistered</span>
+                            )}
+                          </div>
+
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-500">HEX CHANNELS CODE:</span>
+                            <span className="text-white font-bold flex items-center gap-1.5">
+                              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: p.colorHex }}></span>
+                              {p.colorHex}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex justify-between text-[11px] border-t border-gray-950 pt-1">
-                          <span className="text-gray-300">OUTPUT: <strong className="text-white">{l.unitsProduced.toLocaleString()} kg</strong></span>
-                          <span className="text-gray-500">{new Date(l.timestamp).toLocaleString()}</span>
+
+                        {/* Actions control bar */}
+                        <div className="mt-auto border-t border-gray-850 pt-4 flex gap-2 justify-end">
+                          <button
+                            onClick={() => handleStartEditProduct(p)}
+                            className="text-gray-440 hover:text-industrial-accent font-semibold flex items-center gap-1 px-2.5 py-1.5 rounded bg-gray-900 hover:bg-gray-800 border border-gray-800 transition text-xs font-mono"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            EDIT
+                          </button>
+                          
+                          <button
+                            onClick={() => handleDeleteProduct(p.id.toString())}
+                            className="text-gray-450 hover:text-industrial-danger font-semibold flex items-center gap-1 px-2.5 py-1.5 rounded bg-gray-950 hover:bg-red-950/20 border border-gray-900 hover:border-industrial-danger/20 transition text-xs font-mono"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            DELETE
+                          </button>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))
                 )}
               </div>
+
             </div>
-
-            {/* COLUMN 2: INVENTORY LEDGER HISTORY (RAW + FINISHED GOODS) */}
-            <div className="lg:col-span-2 bg-industrial-card border-2 border-industrial-border rounded-lg overflow-hidden shadow-lg flex flex-col">
-              <div className="bg-[#0B0D10] border-b-2 border-industrial-border p-4 flex flex-col gap-3">
-                <h2 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                  <Scale className="text-industrial-accent h-5 w-5" />
-                  INVENTORY LEDGER REGISTRY
-                </h2>
-                
-                {/* Search / filter inputs */}
-                <div className="flex flex-col sm:flex-row gap-2 font-mono text-xs">
-                  <input
-                    type="text"
-                    placeholder="Search ledger entries..."
-                    value={ledgerSearch}
-                    onChange={(e) => setLedgerSearch(e.target.value)}
-                    className="bg-[#12151D] text-white border border-gray-850 rounded px-2.5 py-1.5 focus:border-industrial-accent outline-none flex-1"
-                  />
-                  <select
-                    value={ledgerItemTypeFilter}
-                    onChange={(e) => setLedgerItemTypeFilter(e.target.value as any)}
-                    className="bg-[#12151D] text-white border border-gray-850 rounded px-2 py-1.5 focus:border-industrial-accent outline-none"
-                  >
-                    <option value="ALL">All Item Types</option>
-                    <option value="RAW_MATERIAL">Raw Materials Only</option>
-                    <option value="FINISHED_GOOD">Finished Goods Only</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Ledgers Table List */}
-              <div className="flex-1 bg-[#11141B] max-h-[500px] overflow-y-auto">
-                {filteredLedger.length === 0 ? (
-                  <div className="text-center p-8">
-                    <FolderPlaceholder />
-                    <p className="text-xs text-gray-500 font-mono mt-2">NO LEDGER HISTORY: Stock transactions will appear here.</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto w-full">
-                    <table className="w-full text-left border-collapse text-xs font-mono">
-                      <thead>
-                        <tr className="border-b border-gray-900 bg-[#0B0D10]/50 text-gray-400">
-                          <th className="py-2.5 px-3">DATE / TIME</th>
-                          <th className="py-2.5 px-3">ITEM</th>
-                          <th className="py-2.5 px-3">TYPE</th>
-                          <th className="py-2.5 px-3">QTY (kg)</th>
-                          <th className="py-2.5 px-3">DESCRIPTION</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-900/60">
-                        {filteredLedger.map(e => (
-                          <tr key={e.entryId} className="hover:bg-[#161A24] transition">
-                            <td className="py-3 px-3 text-gray-400 whitespace-nowrap">{new Date(e.timestamp).toLocaleString()}</td>
-                            <td className="py-3 px-3 font-bold text-white">{e.itemName}</td>
-                            <td className="py-3 px-3">
-                              <span className={`text-[10px] font-bold ${e.itemType === 'RAW_MATERIAL' ? 'text-yellow-500' : 'text-industrial-accent'}`}>
-                                {e.itemType}
-                              </span>
-                            </td>
-                            <td className="py-3 px-3">
-                              <span className={`font-bold ${e.quantityKg >= 0 ? 'text-industrial-success' : 'text-industrial-danger'}`}>
-                                {e.quantityKg >= 0 ? '+' : ''}
-                                {e.quantityKg.toLocaleString()} kg
-                              </span>
-                            </td>
-                            <td className="py-3 px-3 text-gray-300 max-w-[240px] truncate" title={e.description}>{e.description}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
-
           </div>
         )}
 
-        {/* TAB 6: LINK CONNECTIONS PROTOCOLS */}
-        {activeTab === 'link-integration' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 select-none">
-            
-            {/* COLUMN 1: KOTLIN SYNC CODE TEMPLATE */}
-            <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded flex flex-col gap-4 shadow-lg text-left">
-              <div className="flex justify-between items-center flex-wrap gap-2">
-                <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                  <Link2 className="h-5 w-5 text-industrial-accent" />
-                  KOTLIN KTOR DATA SYNCHRONIZATION TEMPLATE
-                </h3>
-                
-                <button
-                  onClick={() => triggerCopyCode(SAMPLE_KTOR_CODE, 'ktor')}
-                  className="bg-gray-800 hover:bg-gray-700 transition px-3 py-1 rounded text-xs font-mono font-bold text-white"
-                >
-                  {copiedSection === 'ktor' ? '✔️ COPIED' : '📋 COPY KOTLIN CODE'}
-                </button>
+        {/* TAB 3: BATCH LOGS HISTORY PANEL */}
+        {activeTab === 'logs' && (
+          <div className="bg-industrial-card border-2 border-industrial-border rounded-lg overflow-hidden shadow-lg flex flex-col">
+            <div className="bg-[#0B0D10] border-b-2 border-industrial-border p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
+                  <Terminal className="text-industrial-accent" />
+                  SECURED LOG REGISTRY VAULT
+                </h2>
+                <p className="text-xs text-gray-400 font-mono mt-0.5">READ-ONLY EXTRUDER SHIPMENT EVENTS RETRIEVED FROM ROOM STORAGE SYSTEM</p>
               </div>
 
-              <p className="text-xs text-gray-400 font-mono leading-relaxed">
-                Replicate this synchronization connector routine inside the Android mobile codebase. It dispatches local SQLite Room database records over REST HTTP Ktor calls during network restoration:
-              </p>
+              {/* Advanced search modifiers filters */}
+              <div className="flex flex-wrap items-center gap-4 text-xs font-mono">
+                {/* Search query input */}
+                <input
+                  type="text"
+                  placeholder="QUERY BATCH OR MIXTURE..."
+                  value={searchLog}
+                  onChange={(e) => setSearchLog(e.target.value)}
+                  className="bg-[#11141C] border border-industrial-border text-white rounded px-3 py-2 w-52 outline-none focus:border-industrial-accent"
+                />
 
-              <div className="bg-[#0B0D10] border border-industrial-border rounded-md p-4 overflow-x-auto max-h-[380px] font-mono text-[10.5px] leading-relaxed text-[#00F0FF] select-text">
-                <pre>{SAMPLE_KTOR_CODE}</pre>
+                {/* Dropdown line modifier */}
+                <select
+                  value={lineFilter}
+                  onChange={(e) => setLineFilter(e.target.value)}
+                  className="bg-[#11141C] border border-industrial-border text-white rounded px-3 py-2 w-44 outline-none focus:border-industrial-accent cursor-pointer"
+                >
+                  <option value="ALL">FILTER ALL LINES</option>
+                  <option value="Line A">Line A (Manual Assembly)</option>
+                  <option value="Line B">Line B (Auto Injection)</option>
+                  <option value="Line C">Line C (Extrusion Sinter)</option>
+                  <option value="CNC-04">CNC-04 Milling Node</option>
+                </select>
+
+                {/* Master clear remote trigger */}
+                <button
+                  onClick={handleClearAllLogs}
+                  className="bg-industrial-danger/10 text-industrial-danger hover:bg-industrial-danger hover:text-white border border-industrial-danger/30 hover:border-industrial-danger transition px-4 py-2 rounded text-xs font-mono font-bold uppercase tracking-wider h-9"
+                >
+                  CLEAR TRANSACTION HISTORY
+                </button>
               </div>
             </div>
 
-            {/* COLUMN 2: SHARED ROOM SQL SCHEMAS */}
+            {/* List log items table */}
+            <div className="p-6">
+              
+              <div className="w-full overflow-x-auto rounded border border-industrial-border">
+                <table className="w-full text-left font-mono text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-[#0B0D10] text-[#868A94] uppercase tracking-wider text-[10px] border-b border-industrial-border">
+                      <th className="p-4">BATCH ID</th>
+                      <th className="p-4">MIXTURE (ENGLISH / HINDI)</th>
+                      <th className="p-4">RUN SITE LINE</th>
+                      <th className="p-4">UNITS OUTFLOW</th>
+                      <th className="p-4">SAFETY COGNIZANCES STATUS</th>
+                      <th className="p-4">LOG TIMESTAMP</th>
+                    </tr>
+                  </thead>
+                  
+                  <tbody className="divide-y divide-gray-850">
+                    {filteredLogs.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="text-center p-8 text-gray-550 italic font-mono text-gray-500">
+                          NO ACTIVE HISTORIES CAPTURED FOR FILTER DIRECTIVES
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredLogs.map(l => (
+                        <tr key={l.batchId} className="hover:bg-[#12141C] transition-colors">
+                          <td className="p-4 font-bold text-white tracking-widest">{l.batchId}</td>
+                          <td className="p-4">
+                            <div className="text-sm font-semibold text-[#D1D4DC]">{l.productNameEnglish}</div>
+                            <div className="text-xs text-gray-400 font-display leading-tight">{l.productNameHindi}</div>
+                          </td>
+                          <td className="p-4 text-gray-300 font-medium">{l.line}</td>
+                          <td className="p-4">
+                            <span className="text-white font-bold">{l.unitsProduced.toLocaleString()}</span>
+                            <span className="text-xs text-gray-500 ml-1">/ {l.targetUnits.toLocaleString()}</span>
+                          </td>
+                          <td className="p-4">
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-[10.5px] font-bold border ${
+                              l.status === 'Success' 
+                                ? 'bg-industrial-success/15 text-industrial-success border-industrial-success/20 glow-text-success' 
+                                : 'bg-industrial-danger/15 text-industrial-danger border-industrial-danger/20 glow-text-red'
+                            }`}>
+                              {l.status === 'Success' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                              {l.status === 'Success' ? 'YIELD OK' : 'ALARM / FAULT'}
+                            </span>
+                          </td>
+                          <td className="p-4 text-gray-405 text-gray-400 font-medium">
+                            {new Date(l.timestamp).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: DATABASE INTEGRATION & BRIDGING LINKS DETAILS */}
+        {activeTab === 'link-integration' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* COLUMN 1 & 2: CONVERTING LOCAL STORAGE ROOM REPOSITORY TO API ENDPOINTS */}
+            <div className="lg:col-span-2 flex flex-col gap-6">
+              
+              <div className="bg-[#12151D] border-2 border-[#10B981]/40 p-6 rounded-lg flex flex-col gap-6 shadow-xl relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full filter blur-3xl pointer-events-none"></div>
+                
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-emerald-500/10 border border-[#10B981]/30 rounded">
+                    <Link2 className="h-6 w-6 text-emerald-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-white font-display uppercase tracking-tight">
+                      🔌 DATABASE BRIDGING & REMOTE CONNECTIVITY PROTOCOLS
+                    </h2>
+                    <p className="text-xs text-emerald-400 font-mono">EXPLAINING HOW THE TABLET APP SYNCHRONIZES DATA TO THE CENTRALISED SERVER</p>
+                  </div>
+                </div>
+
+                <div className="text-sm leading-relaxed text-gray-300 flex flex-col gap-4">
+                  <p>
+                    The factory terminal tablet operates <strong>completely offline-first</strong> inside the assembly line to prevent data loss in the event of industrial Wi-Fi disruptions or mechanical high-frequency noise interference. It logs operator events directly into a local <strong>Room Database</strong> (SQLite).
+                  </p>
+
+                  <p>
+                    To bridge the Tablet App with this central Cloud Administration Web Console, we configure an external database connector layer. Below are the standard ways of implementing and wiring this bidirectional link:
+                  </p>
+
+                  {/* Options timeline cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+                    
+                    <div className="bg-[#191D28] p-4 border border-gray-800 rounded flex flex-col gap-2.5">
+                      <span className="font-mono text-xs font-bold text-emerald-400">PROTOCOL I</span>
+                      <h4 className="text-xs font-extrabold text-white uppercase tracking-wider font-display">Ktor REST Sync Client</h4>
+                      <p className="text-[11px] text-gray-400 leading-relaxed font-sans">
+                        The Tablet runs a Worker-backed background job that polls a POST API periodically. It bundles local batch Room rows and ships them safely as a compressed JSON array.
+                      </p>
+                    </div>
+
+                    <div className="bg-[#191D28] p-4 border border-gray-800 rounded flex flex-col gap-2.5">
+                      <span className="font-mono text-xs font-bold text-emerald-400">PROTOCOL II</span>
+                      <h4 className="text-xs font-extrabold text-white uppercase tracking-wider font-display">Websocket Uplink</h4>
+                      <p className="text-[11px] text-gray-400 leading-relaxed font-sans">
+                        For low-latency telemetry (like the real-time extruder unit metrics), target machines push high-frequency updates via WebSocket packets.
+                      </p>
+                    </div>
+
+                    <div className="bg-[#191D28] p-4 border border-gray-800 rounded flex flex-col gap-2.5">
+                      <span className="font-mono text-xs font-bold text-emerald-400">PROTOCOL III</span>
+                      <h4 className="text-xs font-extrabold text-white uppercase tracking-wider font-display">Firebase Sync Node</h4>
+                      <p className="text-[11px] text-gray-400 leading-relaxed font-sans">
+                        Integrating the Firebase SDK into our Gradle builds allows Room DAO logs to mirror directly to a Firestore instance, auto-syncing both online and offline states seamlessly.
+                      </p>
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* Code viewer container */}
+                <div className="border-t border-gray-800 pt-4 flex flex-col gap-3">
+                  <div className="flex justify-between items-center text-xs font-mono text-gray-400">
+                    <span className="flex items-center gap-1.5"><Terminal className="w-4 h-4 text-emerald-400" /> SOURCE: RoomToWebSyncManagerService.kt</span>
+                    
+                    <button 
+                      onClick={() => triggerCopyCode(SAMPLE_KTOR_CODE, 'ktor')}
+                      className="flex items-center gap-1 hover:text-white transition bg-gray-800 hover:bg-gray-700 font-semibold px-2 py-1 rounded"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      {copiedSection === 'ktor' ? 'Copied' : 'Copy Template'}
+                    </button>
+                  </div>
+
+                  <pre className="bg-[#0B0D10] text-[#A6E22E] p-4 rounded overflow-x-auto text-[11px] font-mono border border-gray-805 max-h-72 select-text text-left leading-relaxed">
+                    {SAMPLE_KTOR_CODE}
+                  </pre>
+                </div>
+              </div>
+
+            </div>
+
+            {/* COLUMN 3: DIRECTORY EXCEL SCHEMA SCHEMES */}
             <div className="flex flex-col gap-6">
               
               <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded flex flex-col gap-4 shadow-lg">
                 <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                  <Database className="h-5 w-5 text-industrial-accent" />
-                  SHARED SQL SCHEMAS
+                  <FileSpreadsheet className="h-5 w-5 text-industrial-accent" />
+                  DATABASE SQL SCHEMA LAYOUTS
                 </h3>
                 <p className="text-xs text-gray-500 font-mono">Schema attributes matching Room Entity setup for easy replication into PostgreSQL or MongoDB.</p>
 
@@ -2352,20 +1316,7 @@ export default function App() {
                 />
               </div>
 
-              {/* Nominal Batch Size (select dropdown: 600 or 1000) */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-gray-400 uppercase tracking-wide">NOMINAL BATCH WEIGHT (kg):</label>
-                <select
-                  value={newProductNominalWeight}
-                  onChange={(e) => setNewProductNominalWeight(parseInt(e.target.value) || 600)}
-                  className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 focus:border-industrial-accent outline-none font-mono"
-                >
-                  <option value={600}>600 kg</option>
-                  <option value={1000}>1000 kg</option>
-                </select>
-              </div>
-
-              {/* Color code field */}
+              {/* Saturated Color code field */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-gray-400 uppercase tracking-wide">LINE ACCENT COLOR CHANNELS:</label>
                 <div className="flex gap-2">
@@ -2409,7 +1360,7 @@ export default function App() {
         </div>
       )}
 
-      {/* FOOTER */}
+      {/* FOOTER ENTERPRISE FOOTER */}
       <footer className="border-t border-industrial-border py-6 px-6 bg-[#0B0D10] text-center select-none mt-auto">
         <div className="max-w-[1500px] mx-auto text-xs text-gray-400 font-mono flex flex-col sm:flex-row justify-between items-center gap-4">
           <span>INDUSTRIAL NEXUS INC. COGNIZANT PLATFORMS CO. ALL RIGHTS RESERVED.</span>
