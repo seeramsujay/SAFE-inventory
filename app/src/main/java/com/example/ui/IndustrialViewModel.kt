@@ -351,9 +351,17 @@ class IndustrialViewModel(
                 val serverUrl = com.example.data.PreferencesManager.getServerUrl(getApplication())
                 if (serverUrl.isNotBlank()) {
                     try {
-                        val request = okhttp3.Request.Builder()
-                            .url("$serverUrl/api/orders")
-                            .build()
+                        val requestBuilder = okhttp3.Request.Builder()
+                        if (serverUrl.contains("supabase.co")) {
+                            val sbUrl = if (serverUrl.contains("/rest/v1")) serverUrl else "$serverUrl/rest/v1/orders"
+                            requestBuilder.url(sbUrl)
+                                .addHeader("apikey", "sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
+                                .addHeader("Authorization", "Bearer sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
+                        } else {
+                            val ordUrl = if (serverUrl.endsWith("/api/orders")) serverUrl else "$serverUrl/api/orders"
+                            requestBuilder.url(ordUrl)
+                        }
+                        val request = requestBuilder.build()
                         client.newCall(request).execute().use { response ->
                             if (response.isSuccessful) {
                                 val bodyStr = response.body?.string()
