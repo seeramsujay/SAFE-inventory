@@ -30,6 +30,18 @@ import com.example.ui.theme.MyApplicationTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Kiosk Auto-Recovery Uncaught Exception Handler
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            android.util.Log.e("NexusCrash", "CRITICAL UNCAUGHT EXCEPTION in ${thread.name}", throwable)
+            val intent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            }
+            startActivity(intent)
+            android.os.Process.killProcess(android.os.Process.myPid())
+            java.lang.System.exit(10)
+        }
+
         enableEdgeToEdge()
 
         // Initialize SQLite persistence repository
@@ -37,7 +49,8 @@ class MainActivity : ComponentActivity() {
         val repository = IndustrialRepository(
             database.productDao(),
             database.batchLogDao(),
-            database.activeShiftDao()
+            database.activeShiftDao(),
+            database.outboxDao()
         )
 
         // Construct standard ViewModel
@@ -52,7 +65,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
                         // Standardized global Footer status indicator block
-                        FooterStatusIndicator()
+                        FooterStatusIndicator(viewModel)
                     }
                 ) { innerPadding ->
                     Box(
@@ -63,43 +76,27 @@ class MainActivity : ComponentActivity() {
                         when (currentScreen) {
                             "login" -> {
                                 LoginScreen(
-                                    viewModel = viewModel,
-                                    onAdminBypass = { viewModel.navigationTo("admin") }
+                                    viewModel = viewModel
                                 )
                             }
                             "worker_timer" -> {
                                 WorkerTimerScreen(
                                     viewModel = viewModel,
                                     onNavigateToExtruder = { viewModel.navigationTo("worker_extruder") },
-                                    onNavigateToEmergency = { viewModel.navigationTo("emergency") },
-                                    onNavigateToAdmin = { viewModel.navigationTo("admin") }
+                                    onNavigateToEmergency = { viewModel.navigationTo("emergency") }
                                 )
                             }
                             "worker_extruder" -> {
                                 WorkerExtruderScreen(
                                     viewModel = viewModel,
                                     onNavigateToTimer = { viewModel.navigationTo("worker_timer") },
-                                    onNavigateToEmergency = { viewModel.navigationTo("emergency") },
-                                    onNavigateToAdmin = { viewModel.navigationTo("admin") }
+                                    onNavigateToEmergency = { viewModel.navigationTo("emergency") }
                                 )
                             }
                             "emergency" -> {
                                 EmergencyScreen(
                                     viewModel = viewModel,
                                     onNavigateBack = { viewModel.navigationTo("worker_timer") }
-                                )
-                            }
-                            "admin" -> {
-                                AdminDashboardScreen(
-                                    viewModel = viewModel,
-                                    onExitAdmin = {
-                                        // If worker shift is active, send them back to timer view, else send back to login
-                                        if (viewModel.activeShift.value != null && viewModel.activeShift.value!!.isActive) {
-                                            viewModel.navigationTo("worker_timer")
-                                        } else {
-                                            viewModel.navigationTo("login")
-                                        }
-                                    }
                                 )
                             }
                         }
@@ -111,7 +108,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun FooterStatusIndicator() {
+fun FooterStatusIndicator(viewModel: IndustrialViewModel) {
+    val pendingLogs by viewModel.pendingLogs.collectAsState()
+    val pendingCount = pendingLogs.size
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -129,18 +129,19 @@ fun FooterStatusIndicator() {
             Box(
                 modifier = Modifier
                     .size(8.dp)
-                    .background(Color(0xFF00875A)) // Online emerald green status
+                    .background(if (pendingCount > 0) Color(0xFFD32F2F) else Color(0xFF00875A)) // Red if unsynced, Emerald if synced
             )
             Text(
-                text = "सिस्टम ऑनलाइन (ONLINE)",
+                text = if (pendingCount > 0) "असिंक किए गए बैच: $pendingCount (UNSYNCED: $pendingCount)" else "सिस्टम ऑनलाइन (ONLINE / SYNCED)",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF1A1A1A)
             )
         }
 
+        val stationName = com.example.data.PreferencesManager.getStationId(viewModel.getApplication())
         Text(
-            text = "TERMINAL: IP: 192.168.1.14",
+            text = "STATION: ${if (stationName.isBlank()) "UNPAIRED" else stationName} | IP: 192.168.1.14",
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.Monospace,

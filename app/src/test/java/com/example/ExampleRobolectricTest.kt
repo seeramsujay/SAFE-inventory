@@ -42,7 +42,8 @@ class ExampleRobolectricTest {
         repository = IndustrialRepository(
             db.productDao(),
             db.batchLogDao(),
-            db.activeShiftDao()
+            db.activeShiftDao(),
+            db.outboxDao()
         )
 
         val app = ApplicationProvider.getApplicationContext<Application>()

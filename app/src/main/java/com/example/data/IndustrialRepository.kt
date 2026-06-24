@@ -8,11 +8,13 @@ import kotlinx.coroutines.withContext
 class IndustrialRepository(
     private val productDao: ProductDao,
     private val batchLogDao: BatchLogDao,
-    private val activeShiftDao: ActiveShiftDao
+    private val activeShiftDao: ActiveShiftDao,
+    private val outboxDao: OutboxDao
 ) {
     val allProducts: Flow<List<ProductEntity>> = productDao.getAllProducts()
     val allBatchLogs: Flow<List<BatchLogEntity>> = batchLogDao.getAllBatchLogs()
     val activeShiftFlow: Flow<ActiveShiftEntity?> = activeShiftDao.getActiveShiftFlow()
+    val allPendingLogs: Flow<List<OutboxEntity>> = outboxDao.getAllPendingLogsFlow()
 
     suspend fun insertProduct(product: ProductEntity) = withContext(Dispatchers.IO) {
         productDao.insertProduct(product)
@@ -46,13 +48,29 @@ class IndustrialRepository(
         activeShiftDao.clearActiveShift()
     }
 
+    suspend fun insertPendingLog(log: OutboxEntity) = withContext(Dispatchers.IO) {
+        outboxDao.insertPendingLog(log)
+    }
+
+    suspend fun deletePendingLog(log: OutboxEntity) = withContext(Dispatchers.IO) {
+        outboxDao.deletePendingLog(log)
+    }
+
+    suspend fun deletePendingLogs(ids: List<Int>) = withContext(Dispatchers.IO) {
+        outboxDao.deletePendingLogs(ids)
+    }
+
+    suspend fun getAllPendingLogs(): List<OutboxEntity> = withContext(Dispatchers.IO) {
+        outboxDao.getAllPendingLogs()
+    }
+
     suspend fun populateInitialDataIfEmpty() = withContext(Dispatchers.IO) {
         val currentProducts = allProducts.firstOrNull() ?: emptyList()
         if (currentProducts.isEmpty()) {
             // Add initial products
-            productDao.insertProduct(ProductEntity("PRD-001", "क्रीम स्पेशल", "Cream Special", 1200, "#00875A", true, "Cream_Special_Ops_v2.pdf"))
-            productDao.insertProduct(ProductEntity("PRD-002", "प्रीमियम प्लस", "Premium Plus", 850, "#E65100", false, "Premium_Plus_Safety.pdf"))
-            productDao.insertProduct(ProductEntity("PRD-003", "मानक मिश्रण", "Standard Blend", 2500, "#10B981", true))
+            productDao.insertProduct(ProductEntity("PRD-001", "क्रीम स्पेशल", "Cream Special", 1200, "#00875A", true, "Cream_Special_Ops_v2.pdf", 480))
+            productDao.insertProduct(ProductEntity("PRD-002", "प्रीमियम प्लस", "Premium Plus", 850, "#E65100", false, "Premium_Plus_Safety.pdf", 540))
+            productDao.insertProduct(ProductEntity("PRD-003", "मानक मिश्रण", "Standard Blend", 2500, "#10B981", true, null, 360))
         }
 
         val currentLogs = allBatchLogs.firstOrNull() ?: emptyList()

@@ -30,13 +30,23 @@ import kotlinx.coroutines.delay
 fun WorkerTimerScreen(
     viewModel: IndustrialViewModel,
     onNavigateToExtruder: () -> Unit,
-    onNavigateToEmergency: () -> Unit,
-    onNavigateToAdmin: () -> Unit
+    onNavigateToEmergency: () -> Unit
 ) {
     val batchId by viewModel.batchId.collectAsState()
     val completedBatches by viewModel.activeBatchCountCompleted.collectAsState()
     val totalBatches by viewModel.activeBatchCountTotal.collectAsState()
     val remainingSec by viewModel.timerRemainingSec.collectAsState()
+    val activeProductNameHindi by viewModel.activeProductNameHindi.collectAsState()
+    val activeProductNameEnglish by viewModel.activeProductNameEnglish.collectAsState()
+    val activeProductColorHex by viewModel.activeProductColorHex.collectAsState()
+
+    val cardColor = remember(activeProductColorHex) {
+        try {
+            Color(android.graphics.Color.parseColor(activeProductColorHex))
+        } catch (e: Exception) {
+            Color(0xFF00875A)
+        }
+    }
 
     var showSuccessFlash by remember { mutableStateOf(false) }
 
@@ -87,19 +97,19 @@ fun WorkerTimerScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF00875A)) // Emerald Green
+                            .background(cardColor)
                             .border(3.dp, Color(0xFF1A1A1A))
                             .padding(24.dp)
                     ) {
                         Text(
-                            text = "क्रीम स्पेशल",
+                            text = activeProductNameHindi,
                             color = Color.White,
                             fontSize = 36.sp,
                             fontWeight = FontWeight.Black,
                             fontFamily = FontFamily.SansSerif
                         )
                         Text(
-                            text = "ACTIVE: CREAM SPECIAL",
+                            text = "ACTIVE: ${activeProductNameEnglish.uppercase()}",
                             color = Color.White.copy(alpha = 0.8f),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
@@ -172,33 +182,8 @@ fun WorkerTimerScreen(
                     }
                 }
 
-                // Split Context Menu Actions (Emergency Stop / Admin Switcher)
+                // Context Menu Actions (Emergency Stop)
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Button(
-                        onClick = onNavigateToAdmin,
-                        shape = RoundedCornerShape(0),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF1A1A1A),
-                            contentColor = Color.White
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(60.dp)
-                            .border(2.dp, Color(0xFF1A1A1A))
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(Icons.Default.Build, "Admin view switcher", modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "ADMIN DASHBOARD STATUS",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
 
                     Button(
                         onClick = onNavigateToEmergency,

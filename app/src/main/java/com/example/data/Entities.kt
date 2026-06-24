@@ -11,7 +11,8 @@ data class ProductEntity(
     val targetUph: Int, // Target units per hour: e.g. 1200
     val colorHex: String, // Saturated color token: e.g. #00875A
     val isActive: Boolean,
-    val manualFileName: String? = null // PDF manuals
+    val manualFileName: String? = null, // PDF manuals
+    val nominalBatchDurationSec: Int = 420
 )
 
 @Entity(tableName = "batch_logs")
@@ -36,4 +37,17 @@ data class ActiveShiftEntity(
     val isWorkplaceClean: Boolean,
     val isMachineNormal: Boolean,
     val isActive: Boolean
+)
+
+@Entity(tableName = "outbox_logs")
+data class OutboxEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val batchId: String,
+    val productNameHindi: String,
+    val productNameEnglish: String,
+    val line: String,
+    val unitsProduced: Int,
+    val status: String,
+    val timestamp: Long,
+    val targetUnits: Int
 )

@@ -9,15 +9,17 @@ import androidx.room.RoomDatabase
     entities = [
         ProductEntity::class,
         BatchLogEntity::class,
-        ActiveShiftEntity::class
+        ActiveShiftEntity::class,
+        OutboxEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun productDao(): ProductDao
     abstract fun batchLogDao(): BatchLogDao
     abstract fun activeShiftDao(): ActiveShiftDao
+    abstract fun outboxDao(): OutboxDao
 
     companion object {
         @Volatile

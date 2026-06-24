@@ -38,27 +38,28 @@ Industrial Nexus is a next-generation cyber-physical manufacturing suite that br
 
 ---
 
-## 🛠️ Getting Started & Local Development
+## 🛠️ Getting Started & Production Setup
 
 ### Prerequisites
 * **Java Development Kit (JDK)**: Version 17 or higher
-* **Node.js**: Version 18+ (with `npm` or `pnpm`)
-* **Android SDK / Studio** (optional, for compiling the tablet application)
+* **Node.js**: Version 18+ (with `npm`)
+* **Android SDK / Studio** (for compiling the tablet application)
 
-### Running the Web Dashboard (Companion Portal)
+### Running the System
 1. Install dependencies:
    ```bash
    npm install
    ```
-2. Start the Vite development server with the integrated API middleware:
+2. Start the Express backend and Vite dashboard concurrently:
    ```bash
    npm run dev
    ```
-   *The server will boot at `http://localhost:3000/`.*
+   *The Express server boots on `http://localhost:3001/` and Vite dashboard boots on `http://localhost:3000/`.*
 
-3. To build the production web bundle:
+3. To build the production assets and run only the Express backend:
    ```bash
    npm run build
+   npm run server
    ```
 
 ### Compiling the Native Android Application
@@ -70,19 +71,17 @@ Industrial Nexus is a next-generation cyber-physical manufacturing suite that br
    ```
    app/build/outputs/apk/debug/app-debug.apk
    ```
-3. Install the APK to a connected emulator or tablet device:
-   ```bash
-   adb install app/build/outputs/apk/debug/app-debug.apk
-   ```
 
 ---
 
-## 🔌 API Sync Endpoints
-The Vite server features an embedded backend mocking layer which exposes:
-* `GET /api/logs` - Retrieve the persistent batch logs history.
-* `POST /api/logs` - Post a new batch log from the Android app.
-* `POST /api/reset` - Clear all logs history.
-* `POST /api/reseed` - Reseed the initial baseline datasets.
+## 🔌 API & Security Architecture
+The system runs a standalone, SQLite-backed Express backend server at `server/index.js` on port `3001` that handles auth, product specifications, inventory tracking, order status, and batch logs:
+* `POST /api/auth/token` - Generates a new station pairing token.
+* `GET /api/auth/validate` - Validates the station token.
+* `GET /api/products` - Returns product specifications.
+* `GET /api/orders` - Fetches active orders for the factory floor.
+* `POST /api/logs` - Posts a new batch log (requires station token auth).
+* `POST /api/logs/bulk` - Receives offline batch uploads (requires station token auth).
 
 ---
 

@@ -44,3 +44,21 @@ interface ActiveShiftDao {
     @Query("DELETE FROM active_shift WHERE id = 1")
     suspend fun clearActiveShift()
 }
+
+@Dao
+interface OutboxDao {
+    @Query("SELECT * FROM outbox_logs ORDER BY id ASC")
+    fun getAllPendingLogsFlow(): Flow<List<OutboxEntity>>
+
+    @Query("SELECT * FROM outbox_logs ORDER BY id ASC")
+    suspend fun getAllPendingLogs(): List<OutboxEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPendingLog(log: OutboxEntity)
+
+    @Delete
+    suspend fun deletePendingLog(log: OutboxEntity)
+
+    @Query("DELETE FROM outbox_logs WHERE id IN (:ids)")
+    suspend fun deletePendingLogs(ids: List<Int>)
+}

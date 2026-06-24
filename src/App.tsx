@@ -40,6 +40,7 @@ interface Product {
   isActive: boolean;
   manualFileName?: string;
   ingredients?: IngredientRatio[];
+  nominalBatchDurationSec?: number;
 }
 
 interface BatchLog {
@@ -148,22 +149,43 @@ const INITIAL_ORDERS: Order[] = [
   { id: "ORD-1003", recipeId: "PRD-003", recipeName: "Standard Blend", recipeHindiName: "मानक मिश्रण", unitsProduced: 0, targetUnits: 5000, status: 'Pending', timestamp: Date.now() - 10 * 60000 }
 ];
 
+/**
+ * Returns the default pairing URL for the Android Kiosk tablet app.
+ * If the dashboard is loaded on localhost or private network IP addresses, it targets port 3001.
+ * Otherwise (e.g. deployed on a public domain/tunnel), it targets the base origin.
+ */
+const getDefaultPairingUrl = () => {
+  const hostname = window.location.hostname;
+  const isLocal = hostname === 'localhost' || 
+                  hostname === '127.0.0.1' || 
+                  /^192\.168\./.test(hostname) || 
+                  /^10\./.test(hostname) || 
+                  /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname);
+  
+  if (isLocal) {
+    return `http://${hostname}:3001`;
+  } else {
+    return window.location.origin;
+  }
+};
+
+/**
+ * Custom fetch wrapper that automatically appends the bypass headers
+ * to bypass localtunnel, ngrok, and serveo warning pages and guarantee clean API responses.
+ */
+const customFetch = (input: RequestInfo | URL, init?: RequestInit) => {
+  const headers = new Headers(init?.headers);
+  headers.set('Bypass-Tunnel-Reminder', 'true');
+  headers.set('ngrok-skip-browser-warning', 'true');
+  headers.set('serveo-skip-browser-warning', 'true');
+  return fetch(input, { ...init, headers });
+};
+
 export default function App() {
-  // Persistence using localStorage
-  const [products, setProducts] = useState<Product[]>(() => {
-    const cached = localStorage.getItem('nexus_products');
-    return cached ? JSON.parse(cached) : INITIAL_PRODUCTS;
-  });
-
-  const [logs, setLogs] = useState<BatchLog[]>(() => {
-    const cached = localStorage.getItem('nexus_logs');
-    return cached ? JSON.parse(cached) : INITIAL_LOGS;
-  });
-
-  const [orders, setOrders] = useState<Order[]>(() => {
-    const cached = localStorage.getItem('nexus_orders');
-    return cached ? JSON.parse(cached) : INITIAL_ORDERS;
-  });
+  // State initialized with fallbacks, synced with backend database
+  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
+  const [logs, setLogs] = useState<BatchLog[]>(INITIAL_LOGS);
+  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
 
   // Check query parameter or local storage for worker access
   const [workerToken, setWorkerToken] = useState<string | null>(() => {
@@ -180,16 +202,13 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'logs' | 'link-integration' | 'inventory'>('dashboard');
 
   // Inventory Management State
-  const [inventory, setInventory] = useState<InventoryItem[]>(() => {
-    const cached = localStorage.getItem('nexus_inventory');
-    return cached ? JSON.parse(cached) : INITIAL_INVENTORY;
-  });
+  const [inventory, setInventory] = useState<InventoryItem[]>(INITIAL_INVENTORY);
 
   // State for ingredient ratio editor (keys are ingredientId, values are percentages)
   const [recipeIngredients, setRecipeIngredients] = useState<{[key: string]: number}>({});
 
   // Preset recipe order form states
-  const [selectedProductId, setSelectedProductId] = useState<string>(products[0]?.id || 'PRD-001');
+  const [selectedProductId, setSelectedProductId] = useState<string>('PRD-001');
   const [orderTargetUnits, setOrderTargetUnits] = useState<number>(5000);
   const [selectedOrderLine, setSelectedOrderLine] = useState<string>('Line A');
 
@@ -222,23 +241,18 @@ export default function App() {
   // Relative time since last batch log update
   const [timeSinceLastUpdate, setTimeSinceLastUpdate] = useState<string>('Never');
 
-  // Sync state to local storage
-  useEffect(() => {
-    localStorage.setItem('nexus_products', JSON.stringify(products));
-  }, [products]);
-
-  useEffect(() => {
-    localStorage.setItem('nexus_logs', JSON.stringify(logs));
-  }, [logs]);
-
-  useEffect(() => {
-    localStorage.setItem('nexus_orders', JSON.stringify(orders));
-  }, [orders]);
-
-  useEffect(() => {
-    localStorage.setItem('nexus_inventory', JSON.stringify(inventory));
-  }, [inventory]);
-
+  // Pairing QR Generator states
+  const [serverLocalIp, setServerLocalIp] = useState<string>('localhost');
+  const [pairingStationId, setPairingStationId] = useState('KIOSK-01');
+  const [pairingServerUrl, setPairingServerUrl] = useState(() => getDefaultPairingUrl());
+  const [generatedPairingJson, setGeneratedPairingJson] = useState(() => {
+    const fallback = {
+      url: getDefaultPairingUrl(),
+      token: 'DASHBOARD-DEV-TOKEN',
+      station: 'KIOSK-01'
+    };
+    return JSON.stringify(fallback);
+  });
   // Handle live clock update
   useEffect(() => {
     const timer = setInterval(() => {
@@ -247,110 +261,119 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // Multi-tab synchronization listening to localStorage modifications
-  useEffect(() => {
-    const handleStorageSync = (e: StorageEvent) => {
-      if (e.key === 'nexus_orders' && e.newValue) {
-        setOrders(JSON.parse(e.newValue));
-      }
-      if (e.key === 'nexus_logs' && e.newValue) {
-        setLogs(JSON.parse(e.newValue));
-      }
-      if (e.key === 'nexus_products' && e.newValue) {
-        setProducts(JSON.parse(e.newValue));
-      }
-      if (e.key === 'nexus_inventory' && e.newValue) {
-        setInventory(JSON.parse(e.newValue));
-      }
-      if (e.key === 'nexus_worker_token') {
-        setWorkerToken(e.newValue);
-      }
-    };
-    window.addEventListener('storage', handleStorageSync);
-    return () => window.removeEventListener('storage', handleStorageSync);
-  }, []);
-
-  // Check URL updates periodically for workerToken
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const urlParams = new URLSearchParams(window.location.search);
-      const token = urlParams.get('workerToken');
-      if (token && token !== workerToken) {
-        localStorage.setItem('nexus_worker_token', token);
-        setWorkerToken(token);
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [workerToken]);
-
-  // Process inventory deduction/updating for a success log
-  const deductInventoryForLog = (log: BatchLog, currentProducts: Product[]) => {
-    setInventory(prevInv => {
-      const product = currentProducts.find(
-        p => p.englishName.toLowerCase() === log.productNameEnglish.toLowerCase()
-      );
-      if (!product) return prevInv;
-      
-      const batches = log.unitsProduced / 1250;
-      
-      return prevInv.map(item => {
-        // 1. Output inventory increase
-        if (item.type === 'finished_good' && item.name.toLowerCase() === product.englishName.toLowerCase()) {
-          return { ...item, stock: Number((item.stock + batches).toFixed(2)) };
+  // Poll all states from the SQLite production backend server
+  const fetchProducts = async () => {
+    try {
+      const res = await customFetch('/api/products');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          const mapped = data.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            englishName: p.englishName,
+            targetUph: p.targetUph,
+            colorHex: p.colorHex,
+            isActive: p.isActive,
+            manualFileName: p.manualFileName,
+            ingredients: p.mixtureRatios || []
+          }));
+          setProducts(mapped);
         }
-        
-        // 2. Input inventory decrease
-        if (item.type === 'raw_material' && product.ingredients) {
-          const ratio = product.ingredients.find(r => r.ingredientId === item.id);
-          if (ratio) {
-            const consumed = 1000 * batches * (ratio.percentage / 100);
-            return { ...item, stock: Math.max(0, Number((item.stock - consumed).toFixed(2))) };
-          }
-        }
-        return item;
-      });
-    });
+      }
+    } catch (err) {
+      console.error("Failed to fetch products:", err);
+    }
   };
 
-  // Poll API logs from the dev server backend
-  useEffect(() => {
-    const fetchApiLogs = async () => {
-      try {
-        const response = await fetch('/api/logs');
-        if (response.ok) {
-          const apiLogs: BatchLog[] = await response.json();
-          if (apiLogs && apiLogs.length > 0) {
-            setLogs(currentLogs => {
-              const merged = [...currentLogs];
-              let updated = false;
-              apiLogs.forEach(apiLog => {
-                if (!merged.some(l => l.batchId === apiLog.batchId)) {
-                  merged.push(apiLog);
-                  updated = true;
-                  // If successfully processed, update inventory
-                  if (apiLog.status === 'Success') {
-                    deductInventoryForLog(apiLog, products);
-                  }
-                }
-              });
-              if (updated) {
-                merged.sort((a, b) => b.timestamp - a.timestamp);
-                localStorage.setItem('nexus_logs', JSON.stringify(merged));
-                return merged;
-              }
-              return currentLogs;
-            });
-          }
+  const fetchOrders = async () => {
+    try {
+      const res = await customFetch('/api/orders');
+      if (res.ok) {
+        const data = await res.json();
+        if (data) {
+          const mapped = data.map((o: any) => ({
+            id: o.id,
+            recipeId: o.productKey,
+            recipeName: o.productNameEnglish,
+            recipeHindiName: o.productNameHindi,
+            unitsProduced: o.completedBatches * 1250,
+            targetUnits: o.totalBatchesScheduled * 1250,
+            status: o.status === 'ACTIVE' ? 'In Progress' : o.status === 'COMPLETED' ? 'Completed' : o.status === 'FAILED' ? 'Failed' : 'Pending',
+            timestamp: o.timestamp,
+            updatedTimestamp: o.timestamp,
+            line: o.line || undefined
+          }));
+          setOrders(mapped);
         }
-      } catch (err) {
-        console.error("Failed to fetch API logs:", err);
       }
-    };
+    } catch (err) {
+      console.error("Failed to fetch orders:", err);
+    }
+  };
 
-    fetchApiLogs();
-    const interval = setInterval(fetchApiLogs, 1500);
+  const fetchInventory = async () => {
+    try {
+      const res = await customFetch('/api/inventory');
+      if (res.ok) {
+        const data = await res.json();
+        if (data) {
+          const mapped = INITIAL_INVENTORY.map(item => {
+            const dbItem = data.find((d: any) => d.itemId === item.id);
+            return dbItem ? { ...item, stock: dbItem.stock } : item;
+          });
+          setInventory(mapped);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch inventory:", err);
+    }
+  };
+
+  const fetchLogs = async () => {
+    try {
+      const res = await customFetch('/api/logs');
+      if (res.ok) {
+        const data = await res.json();
+        if (data) {
+          setLogs(data);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch logs:", err);
+    }
+  };
+
+  const fetchServerInfo = async () => {
+    try {
+      const res = await customFetch('/api/info');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.localIp) {
+          setServerLocalIp(data.localIp);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch server info:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchProducts();
+    fetchOrders();
+    fetchInventory();
+    fetchLogs();
+    fetchServerInfo();
+
+    const interval = setInterval(() => {
+      fetchProducts();
+      fetchOrders();
+      fetchInventory();
+      fetchLogs();
+    }, 2000);
+
     return () => clearInterval(interval);
-  }, [products]);
+  }, []);
 
   // Calculate time since the last batch update
   useEffect(() => {
@@ -390,7 +413,7 @@ export default function App() {
   }, [logs]);
 
   // Place order for preset recipe
-  const handlePlaceOrder = (e: React.FormEvent) => {
+  const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     const product = products.find(p => p.id === selectedProductId);
     if (!product) {
@@ -398,21 +421,29 @@ export default function App() {
       return;
     }
 
-    const newOrder: Order = {
+    const newOrder = {
       id: `ORD-${1000 + orders.length + 1}`,
-      recipeId: product.id,
-      recipeName: product.englishName,
-      recipeHindiName: product.name,
-      unitsProduced: 0,
-      targetUnits: orderTargetUnits,
-      status: 'Pending',
-      timestamp: Date.now()
+      productKey: product.id,
+      productNameEnglish: product.englishName,
+      productNameHindi: product.name,
+      totalBatchesScheduled: Math.ceil(orderTargetUnits / 1250),
+      completedBatches: 0,
+      status: 'PENDING',
+      colorHex: product.colorHex
     };
 
-    const updatedOrders = [newOrder, ...orders];
-    setOrders(updatedOrders);
-    // Explicitly sync to local storage immediately to trigger tab listener
-    localStorage.setItem('nexus_orders', JSON.stringify(updatedOrders));
+    try {
+      const res = await customFetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newOrder)
+      });
+      if (res.ok) {
+        fetchOrders();
+      }
+    } catch (err) {
+      console.error("Failed to place order:", err);
+    }
   };
 
   // Exit worker view and restore admin dashboard
@@ -424,55 +455,59 @@ export default function App() {
   };
 
   // Clear batch logs
-  const handleClearAllLogs = () => {
+  const handleClearAllLogs = async () => {
     if (window.confirm("CONFIRMATION REQUIRED: Clear all production histories on file?")) {
-      setLogs([]);
-      // Clear completed status on orders to keep consistent
-      const clearedOrders = orders.map(o => {
-        if (o.status === 'Completed' || o.status === 'Failed') {
-          return { ...o, status: 'Pending' as const, unitsProduced: 0 };
+      try {
+        const res = await customFetch('/api/reset', { method: 'POST' });
+        if (res.ok) {
+          fetchLogs();
+          fetchOrders();
+          fetchInventory();
         }
-        return o;
-      });
-      setOrders(clearedOrders);
-      localStorage.setItem('nexus_logs', JSON.stringify([]));
-      localStorage.setItem('nexus_orders', JSON.stringify(clearedOrders));
-      // Reset inventory back to initial default stock levels
-      setInventory(INITIAL_INVENTORY);
-      localStorage.setItem('nexus_inventory', JSON.stringify(INITIAL_INVENTORY));
-      // Call reset endpoint on server
-      fetch('/api/reset', { method: 'POST' }).catch(err => console.error("Failed to reset api logs:", err));
+      } catch (err) {
+        console.error("Failed to clear logs:", err);
+      }
     }
   };
 
   // Reseed datasets
-  const handleReseedData = () => {
+  const handleReseedData = async () => {
     if (window.confirm("CONFIRMATION: Reset and seed default recipe arrays and logs?")) {
-      setProducts(INITIAL_PRODUCTS);
-      setLogs(INITIAL_LOGS);
-      setOrders(INITIAL_ORDERS);
-      setInventory(INITIAL_INVENTORY);
-      localStorage.setItem('nexus_products', JSON.stringify(INITIAL_PRODUCTS));
-      localStorage.setItem('nexus_logs', JSON.stringify(INITIAL_LOGS));
-      localStorage.setItem('nexus_orders', JSON.stringify(INITIAL_ORDERS));
-      localStorage.setItem('nexus_inventory', JSON.stringify(INITIAL_INVENTORY));
-      // Call reseed endpoint on server
-      fetch('/api/reseed', { method: 'POST' }).catch(err => console.error("Failed to reseed api logs:", err));
-      alert("Database variables restored to initial setup.");
+      try {
+        const res = await customFetch('/api/reseed', { method: 'POST' });
+        if (res.ok) {
+          fetchProducts();
+          fetchLogs();
+          fetchOrders();
+          fetchInventory();
+          alert("Database variables restored to initial setup.");
+        }
+      } catch (err) {
+        console.error("Failed to reseed logs:", err);
+      }
     }
   };
 
   // Delete product
-  const handleDeleteProduct = (pId: string) => {
+  const handleDeleteProduct = async (pId: string) => {
     if (window.confirm(`CONFIRM: Delete mixture recipe ${pId}?`)) {
-      const updated = products.filter(p => p.id !== pId);
-      setProducts(updated);
-      localStorage.setItem('nexus_products', JSON.stringify(updated));
+      const product = products.find(p => p.id === pId);
+      if (!product) return;
+      try {
+        await customFetch('/api/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...product, isActive: false, mixtureRatios: product.ingredients })
+        });
+        fetchProducts();
+      } catch (err) {
+        console.error("Failed to delete product:", err);
+      }
     }
   };
 
   // Save or modify product
-  const handleSaveProduct = (e: React.FormEvent) => {
+  const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProductId || !newProductName || !newProductEnglishName) {
       alert("All fields are mandatory.");
@@ -489,46 +524,38 @@ export default function App() {
       return;
     }
 
-    let updatedProducts;
-    if (editingProduct) {
-      updatedProducts = products.map(p => p.id === editingProduct.id ? {
-        ...p,
-        name: newProductName,
-        englishName: newProductEnglishName,
-        targetUph: newProductTargetUph,
-        colorHex: newProductColor,
-        manualFileName: newProductManual || undefined,
-        ingredients: ingredientsArray
-      } : p);
-      setProducts(updatedProducts);
-      setEditingProduct(null);
-    } else {
-      if (products.some(p => p.id.toLowerCase() === newProductId.toLowerCase())) {
-        alert("This mixture product ID already exists!");
-        return;
-      }
-      const newItem: Product = {
-        id: newProductId.toUpperCase(),
-        name: newProductName,
-        englishName: newProductEnglishName,
-        targetUph: newProductTargetUph,
-        colorHex: newProductColor,
-        isActive: true,
-        manualFileName: newProductManual || undefined,
-        ingredients: ingredientsArray
-      };
-      updatedProducts = [...products, newItem];
-      setProducts(updatedProducts);
-    }
+    const payload = {
+      id: newProductId.toUpperCase(),
+      name: newProductName,
+      englishName: newProductEnglishName,
+      targetUph: newProductTargetUph,
+      colorHex: newProductColor,
+      isActive: true,
+      manualFileName: newProductManual || undefined,
+      nominalBatchDurationSec: editingProduct?.id === newProductId ? products.find(p => p.id === newProductId)?.nominalBatchDurationSec || 480 : 480,
+      mixtureRatios: ingredientsArray
+    };
 
-    localStorage.setItem('nexus_products', JSON.stringify(updatedProducts));
-    setNewProductId('');
-    setNewProductName('');
-    setNewProductEnglishName('');
-    setNewProductTargetUph(1000);
-    setNewProductColor('#00F0FF');
-    setNewProductManual('');
-    setShowAddProductModal(false);
+    try {
+      const res = await customFetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        fetchProducts();
+        setEditingProduct(null);
+        setNewProductId('');
+        setNewProductName('');
+        setNewProductEnglishName('');
+        setNewProductTargetUph(1000);
+        setNewProductColor('#00F0FF');
+        setNewProductManual('');
+        setShowAddProductModal(false);
+      }
+    } catch (err) {
+      console.error("Failed to save product:", err);
+    }
   };
 
   const handleStartEditProduct = (p: Product) => {
@@ -551,67 +578,99 @@ export default function App() {
     setShowAddProductModal(true);
   };
 
-  // Worker controls
-  const handleWorkerStartOrder = (orderId: string) => {
-    const updated = orders.map(o => o.id === orderId ? { ...o, status: 'In Progress' as const, updatedTimestamp: Date.now() } : o);
-    setOrders(updated);
-    localStorage.setItem('nexus_orders', JSON.stringify(updated));
-    setActiveWorkerOrderId(orderId);
-    
-    const activeOrder = orders.find(o => o.id === orderId);
-    if (activeOrder) {
-      setWorkerUnitsProducedInput(activeOrder.unitsProduced);
+  // Helper for inventory restocking/dispatch adjustments on the server
+  const adjustInventoryOnServer = async (itemId: string, adjustAmount: number) => {
+    const item = inventory.find(i => i.id === itemId);
+    if (!item) return;
+    const newStock = Math.max(0, Number((item.stock + adjustAmount).toFixed(2)));
+    try {
+      const response = await customFetch('/api/inventory/adjust', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId: itemId, stock: newStock })
+      });
+      if (response.ok) {
+        fetchInventory();
+      }
+    } catch (err) {
+      console.error("Failed to adjust inventory on server:", err);
     }
   };
 
-  const handleWorkerUpdateProgress = (val: number) => {
-    if (!activeWorkerOrderId) return;
-    const updated = orders.map(o => o.id === activeWorkerOrderId ? { ...o, unitsProduced: val, updatedTimestamp: Date.now() } : o);
-    setOrders(updated);
-    localStorage.setItem('nexus_orders', JSON.stringify(updated));
-    setWorkerUnitsProducedInput(val);
+  // Worker controls
+  const handleWorkerStartOrder = async (orderId: string) => {
+    try {
+      const res = await customFetch(`/api/orders/${orderId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'ACTIVE' })
+      });
+      if (res.ok) {
+        fetchOrders();
+        setActiveWorkerOrderId(orderId);
+        const activeOrder = orders.find(o => o.id === orderId);
+        if (activeOrder) {
+          setWorkerUnitsProducedInput(activeOrder.unitsProduced);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to start worker order:", err);
+    }
   };
 
-  const handleWorkerCompleteOrder = (status: 'Success' | 'Failed') => {
+  const handleWorkerUpdateProgress = async (val: number) => {
+    if (!activeWorkerOrderId) return;
+    try {
+      const res = await customFetch(`/api/orders/${activeWorkerOrderId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completedBatches: Math.round(val / 1250) })
+      });
+      if (res.ok) {
+        fetchOrders();
+        setWorkerUnitsProducedInput(val);
+      }
+    } catch (err) {
+      console.error("Failed to update progress:", err);
+    }
+  };
+
+  const handleWorkerCompleteOrder = async (status: 'Success' | 'Failed') => {
     if (!activeWorkerOrderId) return;
     const order = orders.find(o => o.id === activeWorkerOrderId);
     if (!order) return;
 
-    // 1. Create a new log history entry
-    const newLog: BatchLog = {
-      batchId: order.id,
+    const batchesCompleted = Math.round(order.unitsProduced / 1250);
+    const newLog = {
+      batchId: `${order.id}-B${batchesCompleted + 1}`,
       productNameHindi: order.recipeHindiName,
       productNameEnglish: order.recipeName,
       line: workerProcessingLine,
-      unitsProduced: workerUnitsProducedInput,
+      unitsProduced: 1250,
       status: status,
       timestamp: Date.now(),
-      targetUnits: order.targetUnits
+      targetUnits: 1250
     };
 
-    const updatedLogs = [newLog, ...logs];
-    setLogs(updatedLogs);
-    localStorage.setItem('nexus_logs', JSON.stringify(updatedLogs));
-
-    // 2. Set order status as completed/failed
-    const updatedOrders = orders.map(o => o.id === activeWorkerOrderId ? { 
-      ...o, 
-      status: (status === 'Success' ? 'Completed' : 'Failed') as any, 
-      unitsProduced: workerUnitsProducedInput,
-      updatedTimestamp: Date.now(),
-      line: workerProcessingLine
-    } : o);
-    setOrders(updatedOrders);
-    localStorage.setItem('nexus_orders', JSON.stringify(updatedOrders));
-
-    // 3. Deduct/update inventory
-    if (status === 'Success') {
-      deductInventoryForLog(newLog, products);
+    try {
+      const res = await customFetch('/api/logs', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer DASHBOARD-DEV-TOKEN'
+        },
+        body: JSON.stringify(newLog)
+      });
+      if (res.ok) {
+        fetchLogs();
+        fetchOrders();
+        fetchInventory();
+        setActiveWorkerOrderId(null);
+        setWorkerUnitsProducedInput(0);
+      }
+    } catch (err) {
+      console.error("Failed to complete order:", err);
     }
-
-    // 4. Clear active states
-    setActiveWorkerOrderId(null);
-    setWorkerUnitsProducedInput(0);
   };
 
   const triggerCopyCode = (text: string, identifier: string) => {
@@ -634,14 +693,35 @@ export default function App() {
     return searchMatch && lineMatch;
   });
 
-  // Construct worker portal URL
-  const workerUrl = `${window.location.origin}${window.location.pathname}?workerToken=nexus-worker-longlived-token-2026`;
-  const qrCodeImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(workerUrl)}&color=00f0ff&bgcolor=161920`;
+  // Construct generated QR URL
+  const workerUrl = `${window.location.origin}${window.location.pathname}?workerToken=DASHBOARD-DEV-TOKEN`;
+  const qrCodeImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(generatedPairingJson)}&color=00f0ff&bgcolor=161920`;
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(workerUrl);
+    navigator.clipboard.writeText(generatedPairingJson);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  const handleGeneratePairingQR = async () => {
+    try {
+      const response = await customFetch('/api/auth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stationId: pairingStationId })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const payload = {
+          url: pairingServerUrl.trim(),
+          token: data.token,
+          station: data.stationId
+        };
+        setGeneratedPairingJson(JSON.stringify(payload));
+      }
+    } catch (err) {
+      console.error("Failed to generate station pairing token:", err);
+    }
   };
 
   // ----------------------------------------------------
@@ -1260,13 +1340,64 @@ export default function App() {
                     <QrCode className="w-5 h-5 text-industrial-accent" />
                   </div>
                   
-                  <div className="text-left w-full">
-                    <h3 className="text-base font-black tracking-tight text-white uppercase font-display">
-                      FLOOR WORKER LINKAGE
-                    </h3>
-                    <p className="text-xs text-gray-400 font-mono mt-1 leading-relaxed">
-                      Connect workers instantly. Scan this QR code with a tablet or mobile device. No logins or complications.
-                    </p>
+                  <div className="text-left w-full flex flex-col gap-3">
+                    <div>
+                      <h3 className="text-base font-black tracking-tight text-white uppercase font-display">
+                        FLOOR WORKER LINKAGE
+                      </h3>
+                      <p className="text-xs text-gray-400 font-mono mt-1 leading-relaxed">
+                        Connect floor tablets instantly. Generate secure pairing QR code credentials for target stations.
+                      </p>
+                    </div>
+
+                    {/* Interactive Input Form */}
+                    <div className="flex flex-col gap-2.5 w-full mt-1 text-left text-xs font-mono">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-gray-500 uppercase text-[9px] tracking-wider">Station Identifier:</span>
+                        <input 
+                          type="text" 
+                          value={pairingStationId} 
+                          onChange={(e) => setPairingStationId(e.target.value)} 
+                          className="bg-[#0B0D10] text-[#00F0FF] border border-gray-800 rounded p-1.5 focus:border-industrial-accent outline-none w-full"
+                          placeholder="e.g. KIOSK-01"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-gray-500 uppercase text-[9px] tracking-wider">API Server Target:</span>
+                        <input 
+                          type="text" 
+                          value={pairingServerUrl} 
+                          onChange={(e) => setPairingServerUrl(e.target.value)} 
+                          className="bg-[#0B0D10] text-[#00F0FF] border border-gray-800 rounded p-1.5 focus:border-industrial-accent outline-none w-full"
+                          placeholder="e.g. http://192.168.1.100:3001"
+                        />
+                      </div>
+                      
+                      {pairingServerUrl.includes('localhost') && serverLocalIp && serverLocalIp !== 'localhost' && (
+                        <div className="bg-orange-950/40 border border-orange-500/20 rounded p-2 text-left mt-0.5 flex flex-col gap-1">
+                          <p className="text-[10px] text-orange-400 font-sans leading-normal">
+                            ⚠️ <strong>Local Network Warning:</strong> 'localhost' cannot be accessed from physical tablets. Use local IP to connect via Wi-Fi:
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setPairingServerUrl(`http://${serverLocalIp}:3001`)}
+                            className="bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/40 rounded py-0.5 px-1.5 text-[9px] uppercase font-bold self-start mt-0.5 transition"
+                          >
+                            Switch to http://{serverLocalIp}:3001
+                          </button>
+                        </div>
+                      )}
+
+                      <p className="text-[9px] text-gray-500 font-sans leading-relaxed mt-0.5 text-left">
+                        💡 <strong>Hint:</strong> If pairing over the internet, paste the public tunnel HTTPS URL (e.g. <code>https://xxx.loca.lt</code>) in the target input above before generating.
+                      </p>
+                      <button 
+                        onClick={handleGeneratePairingQR}
+                        className="bg-industrial-accent hover:bg-industrial-accent/80 text-black font-extrabold uppercase py-1.5 rounded transition text-[10.5px] mt-1"
+                      >
+                        Generate Station Token
+                      </button>
+                    </div>
                   </div>
 
                   {/* QR Image Render */}
@@ -1640,17 +1771,13 @@ export default function App() {
                         {/* Restock action */}
                         <div className="flex justify-end gap-2 mt-2">
                           <button
-                            onClick={() => {
-                              setInventory(prev => prev.map(i => i.id === item.id ? { ...i, stock: Number((i.stock + 1000).toFixed(2)) } : i));
-                            }}
+                            onClick={() => adjustInventoryOnServer(item.id, 1000)}
                             className="bg-gray-900 hover:bg-gray-800 text-white font-mono text-[10px] px-3 py-1 rounded transition border border-gray-700"
                           >
                             +1,000 kg Restock
                           </button>
                           <button
-                            onClick={() => {
-                              setInventory(prev => prev.map(i => i.id === item.id ? { ...i, stock: Number((i.stock + 5000).toFixed(2)) } : i));
-                            }}
+                            onClick={() => adjustInventoryOnServer(item.id, 5000)}
                             className="bg-gray-900 hover:bg-gray-800 text-white font-mono text-[10px] px-3 py-1 rounded transition border border-gray-700"
                           >
                             +5,000 kg Restock
@@ -1690,18 +1817,14 @@ export default function App() {
                         <div className="flex justify-end gap-2 mt-2">
                           <button
                             disabled={item.stock < 1}
-                            onClick={() => {
-                              setInventory(prev => prev.map(i => i.id === item.id ? { ...i, stock: Math.max(0, Number((i.stock - 1).toFixed(2))) } : i));
-                            }}
+                            onClick={() => adjustInventoryOnServer(item.id, -1)}
                             className="bg-gray-900 hover:bg-gray-800 disabled:opacity-40 text-white font-mono text-[10px] px-3 py-1 rounded transition border border-gray-700"
                           >
                             Dispatch 1 Batch
                           </button>
                           <button
                             disabled={item.stock < 5}
-                            onClick={() => {
-                              setInventory(prev => prev.map(i => i.id === item.id ? { ...i, stock: Math.max(0, Number((i.stock - 5).toFixed(2))) } : i));
-                            }}
+                            onClick={() => adjustInventoryOnServer(item.id, -5)}
                             className="bg-gray-900 hover:bg-gray-800 disabled:opacity-40 text-white font-mono text-[10px] px-3 py-1 rounded transition border border-gray-700"
                           >
                             Dispatch 5 Batches

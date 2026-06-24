@@ -26,8 +26,7 @@ import com.example.ui.IndustrialViewModel
 
 @Composable
 fun LoginScreen(
-    viewModel: IndustrialViewModel,
-    onAdminBypass: () -> Unit
+    viewModel: IndustrialViewModel
 ) {
     val workerId by viewModel.workerIdInput.collectAsState()
     val pin by viewModel.pinInput.collectAsState()
@@ -35,7 +34,7 @@ fun LoginScreen(
     val isWorkplaceClean by viewModel.isWorkplaceClean.collectAsState()
     val isMachineNormal by viewModel.isMachineNormal.collectAsState()
 
-    val isFormValid = workerId.isNotBlank() && pin.isNotBlank() && isHelmetChecked && isWorkplaceClean && isMachineNormal
+    val isFormValid = workerId.isNotBlank() && isHelmetChecked && isWorkplaceClean && isMachineNormal
 
     Row(
         modifier = Modifier
@@ -74,92 +73,97 @@ fun LoginScreen(
 
                 // Title Translation Headers
                 Text(
-                    text = "शिफ्ट लॉगिन",
+                    text = "शिफ्ट लॉगिन (QR)",
                     color = Color(0xFF1A1A1A),
-                    fontSize = 38.sp,
+                    fontSize = 34.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.SansSerif,
-                    lineHeight = 44.sp
+                    lineHeight = 40.sp
                 )
                 Text(
-                    text = "AUTHENTICATION",
+                    text = "QR CODE PAIRING SYSTEM",
                     color = Color(0xFF1A1A1A).copy(alpha = 0.6f),
-                    fontSize = 14.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.SansSerif,
-                    letterSpacing = 2.sp
+                    letterSpacing = 1.sp
                 )
 
-                Spacer(modifier = Modifier.height(48.dp))
+                Spacer(modifier = Modifier.height(40.dp))
 
-                // Credentials Inputs
-                Column(verticalArrangement = Arrangement.spacedBy(28.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = "WORKER ID / कर्मचारी आईडी",
-                            color = Color(0xFF1A1A1A),
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                        OutlinedTextField(
-                            value = workerId,
-                            onValueChange = { viewModel.workerIdInput.value = it },
-                            placeholder = { Text("ID दर्ज करें", color = Color.Gray) },
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Color.Black,
-                                unfocusedTextColor = Color.Black,
-                                focusedBorderColor = Color(0xFF1A1A1A),
-                                unfocusedBorderColor = Color(0xFF1A1A1A),
-                                focusedContainerColor = Color.White,
-                                unfocusedContainerColor = Color.White
-                            ),
-                            textStyle = TextStyle(
-                                fontSize = 22.sp,
+                // QR Scan and simulation UI
+                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Text(
+                        text = "क्यूआर कोड स्कैन करें / SCAN PAIRING QR CODE",
+                        color = Color(0xFF1A1A1A),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Black
+                    )
+
+                    val context = androidx.compose.ui.platform.LocalContext.current
+
+                    // QR Scan Viewport box
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp)
+                            .background(Color.Black)
+                            .border(3.dp, Color(0xFF1A1A1A)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (workerId.isBlank()) {
+                            QRScannerView(
+                                onPairingSuccess = { stationId, token, url ->
+                                    com.example.data.PreferencesManager.savePairing(context, url, token, stationId)
+                                    viewModel.workerIdInput.value = stationId
+                                    viewModel.pinInput.value = token
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Text(
+                                text = "✔ QR SCAN SUCCESSFUL\nSTATION: $workerId\nSTATUS: KEY CONNECTED\nSERVER: ${com.example.data.PreferencesManager.getServerUrl(context)}",
+                                color = Color(0xFF00875A),
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(72.dp)
-                                .border(2.dp, Color(0xFF1A1A1A)),
-                            shape = RoundedCornerShape(0)
-                        )
+                                fontFamily = FontFamily.Monospace,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
                     }
 
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = "PIN / पिन",
-                            color = Color(0xFF1A1A1A),
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                        OutlinedTextField(
-                            value = pin,
-                            onValueChange = { viewModel.pinInput.value = it },
-                            placeholder = { Text("पिन दर्ज करें", color = Color.Gray) },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                            visualTransformation = PasswordVisualTransformation(),
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Color.Black,
-                                unfocusedTextColor = Color.Black,
-                                focusedBorderColor = Color(0xFF1A1A1A),
-                                unfocusedBorderColor = Color(0xFF1A1A1A),
-                                focusedContainerColor = Color.White,
-                                unfocusedContainerColor = Color.White
-                            ),
-                            textStyle = TextStyle(
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            ),
+                    if (workerId.isBlank()) {
+                        Button(
+                            onClick = { 
+                                com.example.data.PreferencesManager.savePairing(context, "http://10.0.2.2:3001", "LONG-LIVED-TOKEN", "WORKER-QR-9843")
+                                viewModel.workerIdInput.value = "WORKER-QR-9843"
+                                viewModel.pinInput.value = "LONG-LIVED-TOKEN" 
+                            },
+                            shape = RoundedCornerShape(0),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A1A1A)),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(72.dp)
-                                .border(2.dp, Color(0xFF1A1A1A)),
-                            shape = RoundedCornerShape(0)
-                        )
+                                .height(52.dp)
+                                .border(2.dp, Color(0xFF1A1A1A))
+                        ) {
+                            Text("SIMULATE QR SCAN / क्यूआर स्कैन करें", fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    } else {
+                        Button(
+                            onClick = { 
+                                viewModel.workerIdInput.value = ""
+                                viewModel.pinInput.value = "" 
+                                com.example.data.PreferencesManager.clearPairing(context)
+                            },
+                            shape = RoundedCornerShape(0),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .border(2.dp, Color(0xFF1A1A1A))
+                        ) {
+                            Text("DISCONNECT / डिस्कनेक्ट करें", fontWeight = FontWeight.Bold, color = Color.White)
+                        }
                     }
                 }
             }
@@ -189,17 +193,6 @@ fun LoginScreen(
                         color = Color(0xFF1A1A1A)
                     )
                 }
-
-                // Invisible bypass helper so that admin overview is easily accessable
-                Text(
-                    text = "ADMIN BYPASS / एडमिन पैनल",
-                    fontSize = 11.sp,
-                    color = Color.Blue,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .clickable { onAdminBypass() }
-                        .align(Alignment.CenterHorizontally)
-                )
             }
         }
 

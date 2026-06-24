@@ -25,6 +25,7 @@ class IndustrialViewModel(
             repository.populateInitialDataIfEmpty()
         }
         startLiveMonitoring()
+        startPollingActiveOrders()
     }
 
     // 1. Database Streams
@@ -35,6 +36,9 @@ class IndustrialViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val batchLogs: StateFlow<List<BatchLogEntity>> = repository.allBatchLogs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val pendingLogs: StateFlow<List<OutboxEntity>> = repository.allPendingLogs
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // 2. Active Screen State/Layout state
@@ -53,6 +57,10 @@ class IndustrialViewModel(
     val activeBatchCountCompleted = MutableStateFlow(4)
     val activeBatchCountTotal = MutableStateFlow(14)
     val batchId = MutableStateFlow("B-4902")
+    val activeProductNameEnglish = MutableStateFlow("Cream Special")
+    val activeProductNameHindi = MutableStateFlow("क्रीम स्पेशल")
+    val activeProductColorHex = MutableStateFlow("#00875A")
+    val activeOrderId = MutableStateFlow("ORD-1001")
 
     // Countdown Timer logic: Starting from 6:42 (402 seconds)
     private val _timerRemainingSec = MutableStateFlow(402)
@@ -161,18 +169,14 @@ class IndustrialViewModel(
     // 7. Batch completion action via Swipe-To-Confirm Slider
     fun completeActiveBatch() {
         viewModelScope.launch {
-            // Success log insertion to Room
-            val currentProductHindi = "क्रीम स्पेशल"
-            val currentProductEnglish = "Cream Special"
+            val currentProductHindi = activeProductNameHindi.value
+            val currentProductEnglish = activeProductNameEnglish.value
             
-            val logsCount = batchLogs.value.size
-            val nextBatchNum = 4903 + logsCount
+            val nextBatchNum = System.currentTimeMillis() % 1000000
             val nextBatchId = "B-$nextBatchNum"
 
-            // Increment count
             val completed = activeBatchCountCompleted.value + 1
             activeBatchCountCompleted.value = completed
-            batchId.value = nextBatchId
 
             val entity = BatchLogEntity(
                 batchId = nextBatchId,
@@ -191,8 +195,38 @@ class IndustrialViewModel(
             // Sync to web companion app
             sendBatchLogToWeb(entity)
 
-            // Reset Swipe Countdown Timer
-            _timerRemainingSec.value = 420 // reset to 7:00
+            // PATCH update to the server
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val serverUrl = com.example.data.PreferencesManager.getServerUrl(getApplication())
+                    val orderId = activeOrderId.value
+                    val newStatus = if (completed >= activeBatchCountTotal.value) "COMPLETED" else "ACTIVE"
+                    if (orderId.isNotBlank() && serverUrl.isNotBlank()) {
+                        val json = """
+                            {
+                              "completedBatches": $completed,
+                              "status": "$newStatus"
+                            }
+                        """.trimIndent()
+                        val client = NetworkUtils.getOkHttpClient()
+                        val body = json.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                        val request = okhttp3.Request.Builder()
+                            .url("$serverUrl/api/orders/$orderId/status")
+                            .patch(body)
+                            .build()
+                        client.newCall(request).execute().use { response ->
+                            // Update successful
+                        }
+                    }
+                } catch (e: java.lang.Exception) {
+                    android.util.Log.e("NexusSync", "Failed patching order: ${e.message}")
+                }
+            }
+
+            // Find matching product to set nominal timer
+            val prod = products.value.find { it.englishName == currentProductEnglish }
+            val nominalDuration = prod?.nominalBatchDurationSec ?: 420
+            _timerRemainingSec.value = nominalDuration
         }
     }
 
@@ -280,48 +314,98 @@ class IndustrialViewModel(
     }
 
     private fun sendBatchLogToWeb(entity: BatchLogEntity) {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                val json = """
-                    {
-                      "batchId": "${entity.batchId}",
-                      "productNameHindi": "${entity.productNameHindi}",
-                      "productNameEnglish": "${entity.productNameEnglish}",
-                      "line": "${entity.line}",
-                      "unitsProduced": ${entity.unitsProduced},
-                      "status": "${entity.status}",
-                      "timestamp": ${entity.timestamp},
-                      "targetUnits": ${entity.targetUnits}
-                    }
-                """.trimIndent()
+        viewModelScope.launch {
+            val outboxItem = OutboxEntity(
+                batchId = entity.batchId,
+                productNameHindi = entity.productNameHindi,
+                productNameEnglish = entity.productNameEnglish,
+                line = entity.line,
+                unitsProduced = entity.unitsProduced,
+                status = entity.status,
+                timestamp = entity.timestamp,
+                targetUnits = entity.targetUnits
+            )
+            repository.insertPendingLog(outboxItem)
+            triggerOfflineSync()
+        }
+    }
 
-                val client = okhttp3.OkHttpClient()
-                val body = json.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
-                
-                val urls = listOf(
-                    "https://safe-inventory.vercel.app/api/logs",
-                    "http://10.63.97.203:3000/api/logs",
-                    "http://10.0.2.2:3000/api/logs"
-                )
+    fun triggerOfflineSync() {
+        val constraints = androidx.work.Constraints.Builder()
+            .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+            .build()
+        val syncWorkRequest = androidx.work.OneTimeWorkRequest.Builder(SyncWorker::class.java)
+            .setConstraints(constraints)
+            .build()
+        androidx.work.WorkManager.getInstance(getApplication())
+            .enqueueUniqueWork("nexus_offline_sync", androidx.work.ExistingWorkPolicy.KEEP, syncWorkRequest)
+    }
 
-                for (url in urls) {
+    private var pollJob: kotlinx.coroutines.Job? = null
+
+    fun startPollingActiveOrders() {
+        pollJob?.cancel()
+        pollJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val client = NetworkUtils.getOkHttpClient()
+            while (true) {
+                val serverUrl = com.example.data.PreferencesManager.getServerUrl(getApplication())
+                if (serverUrl.isNotBlank()) {
                     try {
                         val request = okhttp3.Request.Builder()
-                            .url(url)
-                            .post(body)
+                            .url("$serverUrl/api/orders")
                             .build()
                         client.newCall(request).execute().use { response ->
                             if (response.isSuccessful) {
-                                android.util.Log.d("NexusSync", "Synced successfully to $url")
-                                return@launch
+                                val bodyStr = response.body?.string()
+                                if (!bodyStr.isNullOrBlank()) {
+                                    val jsonArray = org.json.JSONArray(bodyStr)
+                                    var foundActive = false
+                                    for (i in 0 until jsonArray.length()) {
+                                        val obj = jsonArray.getJSONObject(i)
+                                        if (obj.optString("status") == "ACTIVE") {
+                                            foundActive = true
+                                            val id = obj.optString("id")
+                                            val productKey = obj.optString("productKey")
+                                            val nameEng = obj.optString("productNameEnglish")
+                                            val nameHin = obj.optString("productNameHindi")
+                                            val scheduled = obj.optInt("totalBatchesScheduled")
+                                            val completed = obj.optInt("completedBatches")
+                                            val color = obj.optString("colorHex", "#00875A")
+
+                                            viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                                                activeOrderId.value = id
+                                                activeProductNameEnglish.value = nameEng
+                                                activeProductNameHindi.value = nameHin
+                                                activeProductColorHex.value = color
+                                                activeBatchCountTotal.value = scheduled
+                                                activeBatchCountCompleted.value = completed
+
+                                                val prod = products.value.find { it.id == productKey || it.englishName == nameEng }
+                                                val nominalDuration = prod?.nominalBatchDurationSec ?: 420
+                                                if (batchId.value != "B-${id}") {
+                                                    _timerRemainingSec.value = nominalDuration
+                                                    batchId.value = "B-${id}"
+                                                }
+                                            }
+                                            break
+                                        }
+                                    }
+                                    if (!foundActive) {
+                                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                                            activeOrderId.value = ""
+                                            activeProductNameEnglish.value = "No Active Order"
+                                            activeProductNameHindi.value = "कोई सक्रिय आदेश नहीं"
+                                            activeProductColorHex.value = "#7F7F7F"
+                                        }
+                                    }
+                                }
                             }
                         }
                     } catch (e: Exception) {
-                        android.util.Log.e("NexusSync", "Failed syncing to $url: ${e.message}")
+                        android.util.Log.e("NexusPoll", "Failed loading orders: ${e.message}")
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+                kotlinx.coroutines.delay(10000)
             }
         }
     }
@@ -333,6 +417,7 @@ class IndustrialViewModel(
     override fun onCleared() {
         super.onCleared()
         timerJob?.cancel()
+        pollJob?.cancel()
     }
 }
 
