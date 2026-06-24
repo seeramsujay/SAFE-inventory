@@ -299,8 +299,9 @@ class IndustrialViewModel(
                 val body = json.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
                 
                 val urls = listOf(
-                    "http://10.0.2.2:3000/api/logs",
-                    "http://localhost:3000/api/logs"
+                    "https://safe-inventory.vercel.app/api/logs",
+                    "http://10.63.97.203:3000/api/logs",
+                    "http://10.0.2.2:3000/api/logs"
                 )
 
                 for (url in urls) {
