@@ -6,17 +6,25 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "cap:sync": "pnpm cap sync",
+    "cap:copy": "pnpm cap copy",
+    "cap:update": "pnpm cap update",
+    "cap:open": "pnpm cap open android",
+    "cap:build": "pnpm build && pnpm cap sync"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/core": "^8.4.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.395.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "lucide-react": "^0.395.0",
     "recharts": "^2.12.7",
-    "clsx": "^2.1.1",
     "tailwind-merge": "^2.3.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.6.6",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
