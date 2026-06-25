@@ -36,6 +36,8 @@ fun LoginScreen(
     val isWorkplaceClean by viewModel.isWorkplaceClean.collectAsState()
     val isMachineNormal by viewModel.isMachineNormal.collectAsState()
 
+    var showManualSetupDialog by remember { mutableStateOf(false) }
+
     val isFormValid = workerId.isNotBlank() && isHelmetChecked && isWorkplaceClean && isMachineNormal
 
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -124,18 +126,37 @@ fun LoginScreen(
                     }
 
                     if (workerId.isBlank()) {
-                        Button(
-                            onClick = { 
-                                viewModel.savePairing("WORKER-QR-9843", "LONG-LIVED-TOKEN", "http://10.0.2.2:3001")
-                            },
-                            shape = RoundedCornerShape(0),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A1A1A)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(52.dp)
-                                .border(2.dp, Color(0xFF1A1A1A))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("SIMULATE QR SCAN / क्यूआर स्कैन करें", fontWeight = FontWeight.Bold, color = Color.White)
+                            Button(
+                                onClick = { 
+                                    viewModel.savePairing("WORKER-QR-9843", "LONG-LIVED-TOKEN", "http://10.0.2.2:3001")
+                                },
+                                shape = RoundedCornerShape(0),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A1A1A)),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(52.dp)
+                                    .border(2.dp, Color(0xFF1A1A1A))
+                            ) {
+                                Text("SIMULATE SCAN", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 11.sp)
+                            }
+                            
+                            Button(
+                                onClick = { 
+                                    showManualSetupDialog = true
+                                },
+                                shape = RoundedCornerShape(0),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00875A)),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(52.dp)
+                                    .border(2.dp, Color(0xFF1A1A1A))
+                            ) {
+                                Text("MANUAL SETUP", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 11.sp)
+                            }
                         }
                     } else {
                         Button(
@@ -350,6 +371,109 @@ fun LoginScreen(
                 )
             }
         }
+    }
+
+    if (showManualSetupDialog) {
+        var inputUrl by remember { mutableStateOf("https://safe-inventory.vercel.app") }
+        var inputToken by remember { mutableStateOf("TOKEN-OTH1R1FF-FJXL0T75") }
+        var inputStation by remember { mutableStateOf("KIOSK-NEW") }
+
+        AlertDialog(
+            onDismissRequest = { showManualSetupDialog = false },
+            title = {
+                Text(
+                    text = "मैनुअल कनेक्शन सेटअप\nMANUAL CONNECTION SETUP",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.SansSerif,
+                    color = Color(0xFF1A1A1A)
+                )
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "सर्वर URL (Server API URL):",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1A1A1A).copy(alpha = 0.7f),
+                        fontFamily = FontFamily.Monospace
+                    )
+                    OutlinedTextField(
+                        value = inputUrl,
+                        onValueChange = { inputUrl = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF00875A),
+                            unfocusedBorderColor = Color(0xFF1A1A1A)
+                        )
+                    )
+
+                    Text(
+                        text = "स्टेशन टोकन (Station Token):",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1A1A1A).copy(alpha = 0.7f),
+                        fontFamily = FontFamily.Monospace
+                    )
+                    OutlinedTextField(
+                        value = inputToken,
+                        onValueChange = { inputToken = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF00875A),
+                            unfocusedBorderColor = Color(0xFF1A1A1A)
+                        )
+                    )
+
+                    Text(
+                        text = "स्टेशन आईडी (Station ID / Name):",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1A1A1A).copy(alpha = 0.7f),
+                        fontFamily = FontFamily.Monospace
+                    )
+                    OutlinedTextField(
+                        value = inputStation,
+                        onValueChange = { inputStation = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF00875A),
+                            unfocusedBorderColor = Color(0xFF1A1A1A)
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (inputUrl.isNotBlank() && inputToken.isNotBlank() && inputStation.isNotBlank()) {
+                            viewModel.savePairing(inputStation.trim(), inputToken.trim(), inputUrl.trim())
+                            showManualSetupDialog = false
+                        }
+                    },
+                    shape = RoundedCornerShape(0),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00875A))
+                ) {
+                    Text("CONNECT / कनेक्ट करें", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showManualSetupDialog = false },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFD32F2F))
+                ) {
+                    Text("CANCEL / रद्द करें", fontWeight = FontWeight.Bold)
+                }
+            },
+            shape = RoundedCornerShape(4.dp),
+            containerColor = Color.White
+        )
     }
 }
 

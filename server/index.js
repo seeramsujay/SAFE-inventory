@@ -46,7 +46,7 @@ app.post('/api/auth/token', async (req, res) => {
     return res.status(400).json({ error: 'stationId is required' });
   }
   const token = 'TOKEN-' + Math.random().toString(36).substring(2, 10).toUpperCase() + '-' + Math.random().toString(36).substring(2, 10).toUpperCase();
-  const expiresAt = Date.now() + 90 * 24 * 60 * 60 * 1000; // 90 days
+  const expiresAt = Date.now() + 100 * 365 * 24 * 60 * 60 * 1000; // 100 years
 
   try {
     await run(
