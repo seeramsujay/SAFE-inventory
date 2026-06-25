@@ -265,6 +265,16 @@ export default function App() {
     };
     return JSON.stringify(fallback);
   });
+
+  // Automatically adjust pairing URL to point to intranet IP instead of localhost
+  useEffect(() => {
+    if (serverLocalIp && serverLocalIp !== 'localhost' && serverLocalIp !== '127.0.0.1') {
+      const hostname = window.location.hostname;
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        setPairingServerUrl(`http://${serverLocalIp}:3001`);
+      }
+    }
+  }, [serverLocalIp]);
   // Handle live clock update
   useEffect(() => {
     const timer = setInterval(() => {
@@ -1431,35 +1441,10 @@ export default function App() {
                           placeholder="e.g. KIOSK-01"
                         />
                       </div>
-                      <div className="flex flex-col gap-1">
-                        <span className="text-gray-500 uppercase text-[9px] tracking-wider">API Server Target:</span>
-                        <input 
-                          type="text" 
-                          value={pairingServerUrl} 
-                          onChange={(e) => setPairingServerUrl(e.target.value)} 
-                          className="bg-[#0B0D10] text-[#00F0FF] border border-gray-800 rounded p-1.5 focus:border-industrial-accent outline-none w-full"
-                          placeholder="e.g. http://192.168.1.100:3001"
-                        />
+                      <div className="flex flex-col gap-0.5 bg-[#0B0D10]/50 border border-gray-800/40 rounded p-2 mt-0.5">
+                        <span className="text-gray-500 uppercase text-[9px] tracking-wider">Resolved API Server Target:</span>
+                        <span className="text-emerald-400 text-xs font-semibold">{pairingServerUrl}</span>
                       </div>
-                      
-                      {pairingServerUrl.includes('localhost') && serverLocalIp && serverLocalIp !== 'localhost' && (
-                        <div className="bg-orange-950/40 border border-orange-500/20 rounded p-2 text-left mt-0.5 flex flex-col gap-1">
-                          <p className="text-[10px] text-orange-400 font-sans leading-normal">
-                            ⚠️ <strong>Local Network Warning:</strong> 'localhost' cannot be accessed from physical tablets. Use local IP to connect via Wi-Fi:
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => setPairingServerUrl(`http://${serverLocalIp}:3001`)}
-                            className="bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/40 rounded py-0.5 px-1.5 text-[9px] uppercase font-bold self-start mt-0.5 transition"
-                          >
-                            Switch to http://{serverLocalIp}:3001
-                          </button>
-                        </div>
-                      )}
-
-                      <p className="text-[9px] text-gray-500 font-sans leading-relaxed mt-0.5 text-left">
-                        💡 <strong>Hint:</strong> If pairing over the internet, paste the public tunnel HTTPS URL (e.g. <code>https://xxx.loca.lt</code>) in the target input above before generating.
-                      </p>
                       <button 
                         onClick={handleGeneratePairingQR}
                         className="bg-industrial-accent hover:bg-industrial-accent/80 text-black font-extrabold uppercase py-1.5 rounded transition text-[10.5px] mt-1"
