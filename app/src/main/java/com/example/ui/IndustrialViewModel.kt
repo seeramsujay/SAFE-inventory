@@ -402,6 +402,7 @@ class IndustrialViewModel(
                         val prodBuilder = okhttp3.Request.Builder()
                         val prodUrl = if (serverUrl.endsWith("/api/products")) serverUrl else "$serverUrl/api/products"
                         prodBuilder.url(prodUrl)
+                            .addHeader("Authorization", "Bearer $stationToken")
                         val prodRequest = prodBuilder.build()
                         client.newCall(prodRequest).execute().use { response ->
                             if (response.isSuccessful) {
@@ -444,6 +445,7 @@ class IndustrialViewModel(
                         val requestBuilder = okhttp3.Request.Builder()
                         val ordUrl = if (serverUrl.endsWith("/api/orders")) serverUrl else "$serverUrl/api/orders"
                         requestBuilder.url(ordUrl)
+                            .addHeader("Authorization", "Bearer $stationToken")
                         val request = requestBuilder.build()
                         client.newCall(request).execute().use { response ->
                             if (response.isSuccessful) {
