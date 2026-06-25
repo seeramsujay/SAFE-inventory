@@ -13,6 +13,42 @@ const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
+
+// Basic Authentication for Non-API (web/dashboard) paths
+function basicAuth(req, res, next) {
+  // Exempt API paths from basic auth (handled by API token validation)
+  if (req.path.startsWith('/api')) {
+    return next();
+  }
+
+  const authHeader = req.headers['authorization'];
+  if (!authHeader) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="Industrial Nexus Dashboard"');
+    return res.status(401).send('Authentication required.');
+  }
+
+  const parts = authHeader.split(' ');
+  if (parts[0] !== 'Basic') {
+    res.setHeader('WWW-Authenticate', 'Basic realm="Industrial Nexus Dashboard"');
+    return res.status(401).send('Authentication required.');
+  }
+
+  const credentials = Buffer.from(parts[1], 'base64').toString().split(':');
+  const user = credentials[0];
+  const pass = credentials[1];
+
+  const expectedUser = process.env.DASHBOARD_USER || 'admin';
+  const expectedPass = process.env.DASHBOARD_PASSWORD || 'nexus123';
+
+  if (user === expectedUser && pass === expectedPass) {
+    return next();
+  }
+
+  res.setHeader('WWW-Authenticate', 'Basic realm="Industrial Nexus Dashboard"');
+  return res.status(401).send('Authentication required.');
+}
+
+app.use(basicAuth);
 app.use(express.static(path.join(__dirname, '../dist')));
 
 // Token verification middleware
