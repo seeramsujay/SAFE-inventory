@@ -406,6 +406,55 @@ class IndustrialViewModel(
 
                 if (serverUrl.isNotBlank()) {
                     try {
+                        val prodBuilder = okhttp3.Request.Builder()
+                        if (serverUrl.contains("supabase.co")) {
+                            val sbUrl = if (serverUrl.contains("/rest/v1")) serverUrl else "$serverUrl/rest/v1/products"
+                            prodBuilder.url("$sbUrl?select=*")
+                                .addHeader("apikey", "sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
+                                .addHeader("Authorization", "Bearer sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
+                        } else {
+                            val prodUrl = if (serverUrl.endsWith("/api/products")) serverUrl else "$serverUrl/api/products"
+                            prodBuilder.url(prodUrl)
+                        }
+                        val prodRequest = prodBuilder.build()
+                        client.newCall(prodRequest).execute().use { response ->
+                            if (response.isSuccessful) {
+                                val bodyStr = response.body?.string()
+                                if (!bodyStr.isNullOrBlank()) {
+                                    val jsonArray = org.json.JSONArray(bodyStr)
+                                    for (i in 0 until jsonArray.length()) {
+                                        val obj = jsonArray.getJSONObject(i)
+                                        val id = obj.optString("id")
+                                        val name = obj.optString("name")
+                                        val englishName = obj.optString("englishName")
+                                        val targetUph = obj.optInt("targetUph", 1000)
+                                        val colorHex = obj.optString("colorHex", "#00875A")
+                                        val isActiveProd = obj.optBoolean("isActive", true)
+                                        val manualFile = if (obj.isNull("manualFileName")) null else obj.optString("manualFileName")
+                                        val nominalDuration = obj.optInt("nominalBatchDurationSec", 420)
+
+                                        val productEntity = com.example.data.ProductEntity(
+                                            id = id,
+                                            name = name,
+                                            englishName = englishName,
+                                            targetUph = targetUph,
+                                            colorHex = colorHex,
+                                            isActive = isActiveProd,
+                                            manualFileName = if (manualFile == "null" || manualFile.isNullOrEmpty()) null else manualFile,
+                                            nominalBatchDurationSec = nominalDuration
+                                        )
+                                        repository.insertProduct(productEntity)
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("NexusPoll", "Failed to sync products: ${e.message}")
+                    }
+                }
+
+                if (serverUrl.isNotBlank()) {
+                    try {
                         val requestBuilder = okhttp3.Request.Builder()
                         if (serverUrl.contains("supabase.co")) {
                             val sbUrl = if (serverUrl.contains("/rest/v1")) serverUrl else "$serverUrl/rest/v1/orders"

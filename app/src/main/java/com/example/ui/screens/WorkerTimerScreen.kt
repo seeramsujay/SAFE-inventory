@@ -390,20 +390,21 @@ fun WorkerTimerScreen(
 }
 
 fun getIngredientsForProduct(productNameEnglish: String): List<String> {
-    return when (productNameEnglish.lowercase().trim()) {
-        "cream special" -> listOf(
+    val nameNormalized = productNameEnglish.lowercase().trim()
+    return when {
+        nameNormalized == "cream special" || nameNormalized == "creme special" || nameNormalized == "cream premium" || nameNormalized == "creme premium" -> listOf(
             "Wheat Flour (गेंहू का आटा): 40%",
             "Refined Sugar (चीनी): 35%",
             "Vegetable Fats (वनस्पति वसा): 15%",
             "Cream Flavoring (क्रीम फ्लेवर): 10%"
         )
-        "premium plus" -> listOf(
+        nameNormalized == "premium plus" || nameNormalized == "premium" -> listOf(
             "Wheat Flour (गेंहू का आटा): 30%",
             "Refined Sugar (चीनी): 45%",
             "Vegetable Fats (वनस्पति वसा): 15%",
             "Premium Additive (प्रीमियम एडिटिव): 10%"
         )
-        "standard blend" -> listOf(
+        nameNormalized == "standard blend" -> listOf(
             "Wheat Flour (गेंहू का आटा): 70%",
             "Refined Sugar (चीनी): 20%",
             "Vegetable Fats (वनस्पति वसा): 10%"
