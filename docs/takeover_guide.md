@@ -25,7 +25,7 @@ Before copying or cloning the project, ensure the following are installed:
 
 1. **Clone/Copy the Project Directory** onto the new machine.
 2. **Transfer Environment Settings**:
-   * Ensure the [.env](file:///home/suzaykid/Projects/SAFE-inventory/.env) file exists in the root directory:
+   * Ensure the [.env](file:///home/sunny/.Projects/SAFE-inventory/.env) file exists in the root directory:
      ```env
      SUPABASE_URL=https://yzxikzlrhjgjymuwqnsl.supabase.co
      SUPABASE_ANON_KEY=sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O
@@ -73,4 +73,4 @@ This builds the React project, copies static assets into the Android container, 
 * **Cloud Sync (Live Production)**:
   By default, the Android app will try to sync directly to your live Supabase cloud database. If the tablet has internet, it will work immediately out of the box.
 * **Local Development Sync (Tailscale)**:
-  If you are testing changes locally, find the Tailscale IP of your *new* machine (`tailscale ip -4` or via Tailscale dashboard) and update the fallback URL inside [IndustrialViewModel.kt](file:///home/suzaykid/Projects/SAFE-inventory/app/src/main/java/com/example/ui/IndustrialViewModel.kt#L303).
+  If you are testing changes locally, find the Tailscale IP of your *new* machine (`tailscale ip -4` or via Tailscale dashboard) and update the fallback URL inside [PreferencesManager.kt](file:///home/sunny/.Projects/SAFE-inventory/app/src/main/java/com/example/data/PreferencesManager.kt#L39-L41).
