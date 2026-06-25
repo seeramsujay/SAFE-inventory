@@ -52,16 +52,21 @@ class SyncWorker(
 
         val body = jsonArray.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
         
+        var cleanUrl = serverUrl.trim()
+        while (cleanUrl.endsWith("/")) {
+            cleanUrl = cleanUrl.substring(0, cleanUrl.length - 1)
+        }
+
         val requestBuilder = Request.Builder()
-        if (serverUrl.contains("supabase.co")) {
-            val sbUrl = if (serverUrl.contains("/rest/v1")) serverUrl else "$serverUrl/rest/v1/batch_logs"
+        if (cleanUrl.contains("supabase.co")) {
+            val sbUrl = if (cleanUrl.contains("/rest/v1")) cleanUrl else "$cleanUrl/rest/v1/batch_logs"
             requestBuilder.url(sbUrl)
                 .post(body)
                 .addHeader("apikey", "sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
                 .addHeader("Authorization", "Bearer sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
                 .addHeader("Prefer", "resolution=merge-duplicates")
         } else {
-            val bulkUrl = if (serverUrl.endsWith("/api/logs/bulk")) serverUrl else "$serverUrl/api/logs/bulk"
+            val bulkUrl = "$cleanUrl/api/logs/bulk"
             requestBuilder.url(bulkUrl)
                 .post(body)
                 .addHeader("Authorization", "Bearer $stationToken")
@@ -70,15 +75,24 @@ class SyncWorker(
 
         return try {
             client.newCall(request).execute().use { response ->
+                android.util.Log.d("SyncWorker", "Response code: ${response.code}, successful: ${response.isSuccessful}")
                 if (response.isSuccessful) {
                     val ids = pendingLogs.map { it.id }
                     repository.deletePendingLogs(ids)
                     androidx.work.ListenableWorker.Result.success()
                 } else {
-                    androidx.work.ListenableWorker.Result.retry()
+                    if (response.code == 401 || response.code == 403) {
+                        android.util.Log.w("SyncWorker", "Token is invalid or expired. Clearing pairing.")
+                        PreferencesManager.clearPairing(applicationContext)
+                        androidx.work.ListenableWorker.Result.failure()
+                    } else {
+                        android.util.Log.e("SyncWorker", "Sync failed with status code ${response.code}: ${response.message}")
+                        androidx.work.ListenableWorker.Result.retry()
+                    }
                 }
             }
         } catch (e: Exception) {
+            android.util.Log.e("SyncWorker", "Sync exception: ${e.message}", e)
             androidx.work.ListenableWorker.Result.retry()
         }
     }

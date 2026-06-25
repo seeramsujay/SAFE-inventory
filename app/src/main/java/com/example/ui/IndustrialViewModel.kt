@@ -44,6 +44,7 @@ class IndustrialViewModel(
         if (com.example.data.PreferencesManager.isPaired(application)) {
             workerIdInput.value = savedStation
             pinInput.value = com.example.data.PreferencesManager.getStationToken(application)
+            triggerOfflineSync()
         }
     }
 
@@ -364,7 +365,7 @@ class IndustrialViewModel(
             .setConstraints(constraints)
             .build()
         androidx.work.WorkManager.getInstance(getApplication())
-            .enqueueUniqueWork("nexus_offline_sync", androidx.work.ExistingWorkPolicy.KEEP, syncWorkRequest)
+            .enqueueUniqueWork("nexus_offline_sync", androidx.work.ExistingWorkPolicy.REPLACE, syncWorkRequest)
     }
 
     private var pollJob: kotlinx.coroutines.Job? = null
@@ -375,6 +376,34 @@ class IndustrialViewModel(
             val client = NetworkUtils.getOkHttpClient()
             while (true) {
                 val serverUrl = com.example.data.PreferencesManager.getServerUrl(getApplication())
+                val stationToken = com.example.data.PreferencesManager.getStationToken(getApplication())
+                
+                if (serverUrl.isNotBlank() && stationToken.isNotBlank()) {
+                    try {
+                        val validateBuilder = okhttp3.Request.Builder()
+                        if (serverUrl.contains("supabase.co")) {
+                            val sbUrl = if (serverUrl.contains("/rest/v1")) serverUrl else "$serverUrl/rest/v1/station_tokens"
+                            validateBuilder.url("$sbUrl?token=eq.$stationToken&select=*")
+                                .addHeader("apikey", "sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
+                                .addHeader("Authorization", "Bearer sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
+                        } else {
+                            val valUrl = if (serverUrl.endsWith("/api/auth/validate")) serverUrl else "$serverUrl/api/auth/validate"
+                            validateBuilder.url(valUrl)
+                                .addHeader("Authorization", "Bearer $stationToken")
+                        }
+                        val validateRequest = validateBuilder.build()
+                        client.newCall(validateRequest).execute().use { response ->
+                            if (response.code == 401 || response.code == 403) {
+                                viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                                    clearPairing()
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("NexusPoll", "Failed validating token: ${e.message}")
+                    }
+                }
+
                 if (serverUrl.isNotBlank()) {
                     try {
                         val requestBuilder = okhttp3.Request.Builder()

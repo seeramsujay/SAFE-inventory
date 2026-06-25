@@ -209,7 +209,19 @@ export default function App() {
 
   // Preset recipe order form states
   const [selectedProductId, setSelectedProductId] = useState<string>('PRD-001');
+  const [productionMode, setProductionMode] = useState<'weight' | 'batches'>('weight');
   const [orderTargetUnits, setOrderTargetUnits] = useState<number>(5000);
+  const [orderTargetBatches, setOrderTargetBatches] = useState<number>(4);
+
+  const handleUnitsChange = (val: number) => {
+    setOrderTargetUnits(val);
+    setOrderTargetBatches(Math.ceil(val / 1250));
+  };
+
+  const handleBatchesChange = (val: number) => {
+    setOrderTargetBatches(val);
+    setOrderTargetUnits(val * 1250);
+  };
   const [selectedOrderLine, setSelectedOrderLine] = useState<string>('Line A');
 
   // Search and Filter states
@@ -426,7 +438,7 @@ export default function App() {
       productKey: product.id,
       productNameEnglish: product.englishName,
       productNameHindi: product.name,
-      totalBatchesScheduled: Math.ceil(orderTargetUnits / 1250),
+      totalBatchesScheduled: productionMode === 'batches' ? orderTargetBatches : Math.ceil(orderTargetUnits / 1250),
       completedBatches: 0,
       status: 'PENDING',
       colorHex: product.colorHex
@@ -1221,32 +1233,89 @@ export default function App() {
                       </select>
                     </div>
 
-                    {/* Quantity Demand Input */}
-                    <div className="flex-1 flex flex-col gap-2 text-xs font-mono w-full">
-                      <label className="text-gray-400 font-bold uppercase tracking-wider">Target Units Demand:</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          value={orderTargetUnits}
-                          onChange={(e) => setOrderTargetUnits(Math.max(1, parseInt(e.target.value) || 0))}
-                          className="bg-[#0B0D10] text-white border-2 border-industrial-border px-3 py-3 rounded-lg flex-1 font-mono text-sm focus:border-industrial-accent outline-none"
-                        />
+                    {/* Mode Toggle */}
+                    <div className="flex flex-col gap-2 text-xs font-mono w-full md:w-auto">
+                      <label className="text-gray-400 font-bold uppercase tracking-wider">Production Mode:</label>
+                      <div className="flex bg-[#0B0D10] border-2 border-industrial-border p-1 rounded-lg">
                         <button
                           type="button"
-                          onClick={() => setOrderTargetUnits(prev => Math.max(1000, prev - 1000))}
-                          className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white px-3 py-1 rounded text-xs"
+                          onClick={() => setProductionMode('weight')}
+                          className={`px-3 py-1.5 rounded-md font-bold text-xs uppercase transition-all ${
+                            productionMode === 'weight'
+                              ? 'bg-industrial-accent text-black font-black'
+                              : 'text-gray-400 hover:text-white'
+                          }`}
                         >
-                          -1K
+                          Weight-Wise
                         </button>
                         <button
                           type="button"
-                          onClick={() => setOrderTargetUnits(prev => prev + 1000)}
-                          className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white px-3 py-1 rounded text-xs"
+                          onClick={() => setProductionMode('batches')}
+                          className={`px-3 py-1.5 rounded-md font-bold text-xs uppercase transition-all ${
+                            productionMode === 'batches'
+                              ? 'bg-industrial-accent text-black font-black'
+                              : 'text-gray-400 hover:text-white'
+                          }`}
                         >
-                          +1K
+                          Batch-Wise
                         </button>
                       </div>
                     </div>
+
+                    {/* Quantity Demand Input (Weight or Batch) */}
+                    {productionMode === 'weight' ? (
+                      <div className="flex-1 flex flex-col gap-2 text-xs font-mono w-full">
+                        <label className="text-gray-400 font-bold uppercase tracking-wider">Target Units Demand (kg):</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            value={orderTargetUnits}
+                            onChange={(e) => handleUnitsChange(Math.max(1, parseInt(e.target.value) || 0))}
+                            className="bg-[#0B0D10] text-white border-2 border-industrial-border px-3 py-3 rounded-lg flex-1 font-mono text-sm focus:border-industrial-accent outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleUnitsChange(Math.max(1000, orderTargetUnits - 1000))}
+                            className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white px-3 py-1 rounded text-xs font-bold font-mono"
+                          >
+                            -1K
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleUnitsChange(orderTargetUnits + 1000)}
+                            className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white px-3 py-1 rounded text-xs font-bold font-mono"
+                          >
+                            +1K
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex flex-col gap-2 text-xs font-mono w-full">
+                        <label className="text-gray-400 font-bold uppercase tracking-wider">Target Batch Count:</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            value={orderTargetBatches}
+                            onChange={(e) => handleBatchesChange(Math.max(1, parseInt(e.target.value) || 0))}
+                            className="bg-[#0B0D10] text-white border-2 border-industrial-border px-3 py-3 rounded-lg flex-1 font-mono text-sm focus:border-industrial-accent outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleBatchesChange(Math.max(1, orderTargetBatches - 1))}
+                            className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white px-3 py-1 rounded text-xs font-bold font-mono"
+                          >
+                            -1
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleBatchesChange(orderTargetBatches + 1)}
+                            className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white px-3 py-1 rounded text-xs font-bold font-mono"
+                          >
+                            +1
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Submit Order */}
                     <button

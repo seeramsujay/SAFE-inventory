@@ -117,6 +117,31 @@ fun WorkerTimerScreen(
                             modifier = Modifier.padding(top = 4.dp)
                         )
 
+                        if (activeProductNameEnglish != "No Active Order") {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "सामग्री अनुपात (INGREDIENTS):",
+                                color = Color.White.copy(alpha = 0.9f),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            val ingredients = remember(activeProductNameEnglish) {
+                                getIngredientsForProduct(activeProductNameEnglish)
+                            }
+                            ingredients.forEach { ing ->
+                                Text(
+                                    text = "• $ing",
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.padding(vertical = 1.dp)
+                                )
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(28.dp))
 
                         // High contrast status bubble (Plain Black / English Numbers)
@@ -361,5 +386,32 @@ fun WorkerTimerScreen(
                 }
             }
         }
+    }
+}
+
+fun getIngredientsForProduct(productNameEnglish: String): List<String> {
+    return when (productNameEnglish.lowercase().trim()) {
+        "cream special" -> listOf(
+            "Wheat Flour (गेंहू का आटा): 40%",
+            "Refined Sugar (चीनी): 35%",
+            "Vegetable Fats (वनस्पति वसा): 15%",
+            "Cream Flavoring (क्रीम फ्लेवर): 10%"
+        )
+        "premium plus" -> listOf(
+            "Wheat Flour (गेंहू का आटा): 30%",
+            "Refined Sugar (चीनी): 45%",
+            "Vegetable Fats (वनस्पति वसा): 15%",
+            "Premium Additive (प्रीमियम एडिटिव): 10%"
+        )
+        "standard blend" -> listOf(
+            "Wheat Flour (गेंहू का आटा): 70%",
+            "Refined Sugar (चीनी): 20%",
+            "Vegetable Fats (वनस्पति वसा): 10%"
+        )
+        else -> listOf(
+            "Wheat Flour (गेंहू का आटा): 60%",
+            "Refined Sugar (चीनी): 20%",
+            "Vegetable Fats (वनस्पति वसा): 20%"
+        )
     }
 }

@@ -173,6 +173,18 @@ async function executeSupabaseQuery(query, params = [], mode = 'run') {
       return { changes: 1 };
     }
 
+    // 9b. UPDATE orders SET completedBatches = ?, status = ? WHERE id = ?
+    if (cleaned.includes('UPDATE orders SET completedBatches = ?, status = ? WHERE id = ?')) {
+      const payload = { completedBatches: params[0], status: params[1] };
+      const res = await fetch(`${supabaseUrl}/rest/v1/orders?id=eq.${params[2]}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return { changes: 1 };
+    }
+
     // 10. UPDATE orders SET status = ? WHERE id = ?
     if (cleaned.includes('UPDATE orders SET status = ? WHERE id = ?')) {
       const payload = { status: params[0] };
