@@ -19,6 +19,17 @@ class IndustrialViewModel(
     private val repository: IndustrialRepository
 ) : AndroidViewModel(application) {
 
+    // Reactive Station Pairing State
+    private val _stationId = MutableStateFlow("")
+    val stationId: StateFlow<String> = _stationId.asStateFlow()
+
+    // 3. Login / Shift Entry Session State
+    val workerIdInput = MutableStateFlow("")
+    val pinInput = MutableStateFlow("")
+    val isHelmetChecked = MutableStateFlow(false)
+    val isWorkplaceClean = MutableStateFlow(false)
+    val isMachineNormal = MutableStateFlow(false)
+
     // Initialize database pre-population
     init {
         viewModelScope.launch {
@@ -26,6 +37,14 @@ class IndustrialViewModel(
         }
         startLiveMonitoring()
         startPollingActiveOrders()
+        
+        // Initialize pairing state from preferences
+        val savedStation = com.example.data.PreferencesManager.getStationId(application)
+        _stationId.value = savedStation
+        if (com.example.data.PreferencesManager.isPaired(application)) {
+            workerIdInput.value = savedStation
+            pinInput.value = com.example.data.PreferencesManager.getStationToken(application)
+        }
     }
 
     // 1. Database Streams
@@ -46,12 +65,19 @@ class IndustrialViewModel(
     private val _currentScreen = MutableStateFlow("login")
     val currentScreen: StateFlow<String> = _currentScreen.asStateFlow()
 
-    // 3. Login / Shift Entry Session State
-    val workerIdInput = MutableStateFlow("")
-    val pinInput = MutableStateFlow("")
-    val isHelmetChecked = MutableStateFlow(false)
-    val isWorkplaceClean = MutableStateFlow(false)
-    val isMachineNormal = MutableStateFlow(false)
+    fun savePairing(stationId: String, token: String, url: String) {
+        com.example.data.PreferencesManager.savePairing(getApplication(), url, token, stationId)
+        _stationId.value = stationId
+        workerIdInput.value = stationId
+        pinInput.value = token
+    }
+
+    fun clearPairing() {
+        com.example.data.PreferencesManager.clearPairing(getApplication())
+        _stationId.value = ""
+        workerIdInput.value = ""
+        pinInput.value = ""
+    }
 
     // 4. Active Job state (Worker views)
     val activeBatchCountCompleted = MutableStateFlow(4)

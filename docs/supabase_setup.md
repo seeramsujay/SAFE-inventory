@@ -9,11 +9,11 @@ Run the following SQL script in your Supabase project's **SQL Editor** to initia
 
 ```sql
 -- 1. Drop existing tables if they mismatch
-drop table if exists public.batch_logs;
-drop table if exists public.orders;
-drop table if exists public.inventory;
-drop table if exists public.products;
-drop table if exists public.station_tokens;
+drop table if exists public.batch_logs cascade;
+drop table if exists public.orders cascade;
+drop table if exists public.inventory cascade;
+drop table if exists public.products cascade;
+drop table if exists public.station_tokens cascade;
 
 -- 2. Products Table
 create table public.products (

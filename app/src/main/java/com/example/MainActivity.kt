@@ -139,7 +139,7 @@ fun FooterStatusIndicator(viewModel: IndustrialViewModel) {
             )
         }
 
-        val stationName = com.example.data.PreferencesManager.getStationId(viewModel.getApplication())
+        val stationName by viewModel.stationId.collectAsState()
         Text(
             text = "STATION: ${if (stationName.isBlank()) "UNPAIRED" else stationName} | IP: 192.168.1.14",
             fontSize = 11.sp,

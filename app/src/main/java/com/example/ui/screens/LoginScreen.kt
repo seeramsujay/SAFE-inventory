@@ -22,6 +22,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import com.example.ui.IndustrialViewModel
 
 @Composable
@@ -36,19 +38,12 @@ fun LoginScreen(
 
     val isFormValid = workerId.isNotBlank() && isHelmetChecked && isWorkplaceClean && isMachineNormal
 
-    Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFFFFFFFF))
-    ) {
-        // Left Column: Credentials & Setup (40%)
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    @Composable
+    fun CredentialsSection(modifier: Modifier) {
         Column(
-            modifier = Modifier
-                .fillMaxHeight()
-                .width(440.dp)
-                .background(Color(0xFFF4F5F7))
-                .border(width = 3.dp, color = Color(0xFF1A1A1A))
-                .padding(40.dp),
+            modifier = modifier,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Column {
@@ -100,8 +95,6 @@ fun LoginScreen(
                         fontWeight = FontWeight.Black
                     )
 
-                    val context = androidx.compose.ui.platform.LocalContext.current
-
                     // QR Scan Viewport box
                     Box(
                         modifier = Modifier
@@ -114,9 +107,7 @@ fun LoginScreen(
                         if (workerId.isBlank()) {
                             QRScannerView(
                                 onPairingSuccess = { stationId, token, url ->
-                                    com.example.data.PreferencesManager.savePairing(context, url, token, stationId)
-                                    viewModel.workerIdInput.value = stationId
-                                    viewModel.pinInput.value = token
+                                    viewModel.savePairing(stationId, token, url)
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -135,9 +126,7 @@ fun LoginScreen(
                     if (workerId.isBlank()) {
                         Button(
                             onClick = { 
-                                com.example.data.PreferencesManager.savePairing(context, "http://10.0.2.2:3001", "LONG-LIVED-TOKEN", "WORKER-QR-9843")
-                                viewModel.workerIdInput.value = "WORKER-QR-9843"
-                                viewModel.pinInput.value = "LONG-LIVED-TOKEN" 
+                                viewModel.savePairing("WORKER-QR-9843", "LONG-LIVED-TOKEN", "http://10.0.2.2:3001")
                             },
                             shape = RoundedCornerShape(0),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A1A1A)),
@@ -151,9 +140,7 @@ fun LoginScreen(
                     } else {
                         Button(
                             onClick = { 
-                                viewModel.workerIdInput.value = ""
-                                viewModel.pinInput.value = "" 
-                                com.example.data.PreferencesManager.clearPairing(context)
+                                viewModel.clearPairing()
                             },
                             shape = RoundedCornerShape(0),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
@@ -167,6 +154,8 @@ fun LoginScreen(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(32.dp))
 
             // Connection Terminal Code Indicator / Bypass Link
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -186,7 +175,7 @@ fun LoginScreen(
                             .background(Color(0xFF00875A)) // Emerald active dot
                     )
                     Text(
-                        text = "SYSTEM CONNECTED: KIOSK 04",
+                        text = "SYSTEM CONNECTED: ${if (workerId.isBlank()) "PENDING PAIRING" else workerId}",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
@@ -195,12 +184,12 @@ fun LoginScreen(
                 }
             }
         }
+    }
 
-        // Right Column: Safety Checklist Requirements (60%)
+    @Composable
+    fun SafetySection(modifier: Modifier) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(40.dp),
+            modifier = modifier,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Column {
@@ -254,6 +243,8 @@ fun LoginScreen(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(32.dp))
 
             // Start Shift Primary Button
             Button(
@@ -310,6 +301,53 @@ fun LoginScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFFFFFFF))
+    ) {
+        val isPortrait = maxWidth < 768.dp
+        
+        if (isPortrait) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                CredentialsSection(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFF4F5F7))
+                        .border(width = 3.dp, color = Color(0xFF1A1A1A))
+                        .padding(24.dp)
+                )
+                SafetySection(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp)
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                CredentialsSection(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(440.dp)
+                        .background(Color(0xFFF4F5F7))
+                        .border(width = 3.dp, color = Color(0xFF1A1A1A))
+                        .padding(40.dp)
+                )
+                SafetySection(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(40.dp)
+                )
             }
         }
     }
