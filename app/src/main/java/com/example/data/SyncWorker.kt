@@ -58,20 +58,11 @@ class SyncWorker(
         }
 
         val requestBuilder = Request.Builder()
-        if (cleanUrl.contains("supabase.co")) {
-            val sbUrl = if (cleanUrl.contains("/rest/v1")) cleanUrl else "$cleanUrl/rest/v1/batch_logs"
-            requestBuilder.url(sbUrl)
-                .post(body)
-                .addHeader("apikey", "sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
-                .addHeader("Authorization", "Bearer sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
-                .addHeader("Prefer", "resolution=merge-duplicates")
-        } else {
-            val bulkUrl = "$cleanUrl/api/logs/bulk"
-            requestBuilder.url(bulkUrl)
-                .post(body)
-                .addHeader("Authorization", "Bearer $stationToken")
-                .addHeader("X-Station-Id", PreferencesManager.getStationId(applicationContext))
-        }
+        val bulkUrl = if (cleanUrl.endsWith("/api/logs/bulk")) cleanUrl else "$cleanUrl/api/logs/bulk"
+        requestBuilder.url(bulkUrl)
+            .post(body)
+            .addHeader("Authorization", "Bearer $stationToken")
+            .addHeader("X-Station-Id", PreferencesManager.getStationId(applicationContext))
         val request = requestBuilder.build()
 
         return try {

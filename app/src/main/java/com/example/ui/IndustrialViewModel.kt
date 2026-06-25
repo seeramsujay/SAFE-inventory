@@ -381,16 +381,9 @@ class IndustrialViewModel(
                 if (serverUrl.isNotBlank() && stationToken.isNotBlank()) {
                     try {
                         val validateBuilder = okhttp3.Request.Builder()
-                        if (serverUrl.contains("supabase.co")) {
-                            val sbUrl = if (serverUrl.contains("/rest/v1")) serverUrl else "$serverUrl/rest/v1/station_tokens"
-                            validateBuilder.url("$sbUrl?token=eq.$stationToken&select=*")
-                                .addHeader("apikey", "sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
-                                .addHeader("Authorization", "Bearer sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
-                        } else {
-                            val valUrl = if (serverUrl.endsWith("/api/auth/validate")) serverUrl else "$serverUrl/api/auth/validate"
-                            validateBuilder.url(valUrl)
-                                .addHeader("Authorization", "Bearer $stationToken")
-                        }
+                        val valUrl = if (serverUrl.endsWith("/api/auth/validate")) serverUrl else "$serverUrl/api/auth/validate"
+                        validateBuilder.url(valUrl)
+                            .addHeader("Authorization", "Bearer $stationToken")
                         val validateRequest = validateBuilder.build()
                         client.newCall(validateRequest).execute().use { response ->
                             if (response.code == 401 || response.code == 403) {
@@ -407,15 +400,8 @@ class IndustrialViewModel(
                 if (serverUrl.isNotBlank()) {
                     try {
                         val prodBuilder = okhttp3.Request.Builder()
-                        if (serverUrl.contains("supabase.co")) {
-                            val sbUrl = if (serverUrl.contains("/rest/v1")) serverUrl else "$serverUrl/rest/v1/products"
-                            prodBuilder.url("$sbUrl?select=*")
-                                .addHeader("apikey", "sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
-                                .addHeader("Authorization", "Bearer sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
-                        } else {
-                            val prodUrl = if (serverUrl.endsWith("/api/products")) serverUrl else "$serverUrl/api/products"
-                            prodBuilder.url(prodUrl)
-                        }
+                        val prodUrl = if (serverUrl.endsWith("/api/products")) serverUrl else "$serverUrl/api/products"
+                        prodBuilder.url(prodUrl)
                         val prodRequest = prodBuilder.build()
                         client.newCall(prodRequest).execute().use { response ->
                             if (response.isSuccessful) {
@@ -456,15 +442,8 @@ class IndustrialViewModel(
                 if (serverUrl.isNotBlank()) {
                     try {
                         val requestBuilder = okhttp3.Request.Builder()
-                        if (serverUrl.contains("supabase.co")) {
-                            val sbUrl = if (serverUrl.contains("/rest/v1")) serverUrl else "$serverUrl/rest/v1/orders"
-                            requestBuilder.url(sbUrl)
-                                .addHeader("apikey", "sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
-                                .addHeader("Authorization", "Bearer sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O")
-                        } else {
-                            val ordUrl = if (serverUrl.endsWith("/api/orders")) serverUrl else "$serverUrl/api/orders"
-                            requestBuilder.url(ordUrl)
-                        }
+                        val ordUrl = if (serverUrl.endsWith("/api/orders")) serverUrl else "$serverUrl/api/orders"
+                        requestBuilder.url(ordUrl)
                         val request = requestBuilder.build()
                         client.newCall(request).execute().use { response ->
                             if (response.isSuccessful) {
