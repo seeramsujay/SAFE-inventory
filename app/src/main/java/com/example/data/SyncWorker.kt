@@ -70,6 +70,7 @@ class SyncWorker(
             requestBuilder.url(bulkUrl)
                 .post(body)
                 .addHeader("Authorization", "Bearer $stationToken")
+                .addHeader("X-Station-Id", PreferencesManager.getStationId(applicationContext))
         }
         val request = requestBuilder.build()
 

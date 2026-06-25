@@ -375,7 +375,6 @@ fun LoginScreen(
 
     if (showManualSetupDialog) {
         var inputUrl by remember { mutableStateOf("https://safe-inventory.vercel.app") }
-        var inputToken by remember { mutableStateOf("TOKEN-OTH1R1FF-FJXL0T75") }
         var inputStation by remember { mutableStateOf("KIOSK-NEW") }
 
         AlertDialog(
@@ -413,24 +412,6 @@ fun LoginScreen(
                     )
 
                     Text(
-                        text = "स्टेशन टोकन (Station Token):",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1A1A1A).copy(alpha = 0.7f),
-                        fontFamily = FontFamily.Monospace
-                    )
-                    OutlinedTextField(
-                        value = inputToken,
-                        onValueChange = { inputToken = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF00875A),
-                            unfocusedBorderColor = Color(0xFF1A1A1A)
-                        )
-                    )
-
-                    Text(
                         text = "स्टेशन आईडी (Station ID / Name):",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
@@ -452,8 +433,8 @@ fun LoginScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        if (inputUrl.isNotBlank() && inputToken.isNotBlank() && inputStation.isNotBlank()) {
-                            viewModel.savePairing(inputStation.trim(), inputToken.trim(), inputUrl.trim())
+                        if (inputUrl.isNotBlank() && inputStation.isNotBlank()) {
+                            viewModel.savePairing(inputStation.trim(), "sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O", inputUrl.trim())
                             showManualSetupDialog = false
                         }
                     },
