@@ -640,6 +640,31 @@ export default function App() {
     }
   };
 
+  const handleDispatchOrder = async (orderId: string) => {
+    try {
+      // Deactivate any currently active/in-progress orders to ensure only one is active at a time
+      const activeOrders = orders.filter(o => o.status === 'In Progress');
+      for (const ao of activeOrders) {
+        await customFetch(`/api/orders/${ao.id}/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'PENDING' })
+        });
+      }
+
+      const res = await customFetch(`/api/orders/${orderId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'ACTIVE' })
+      });
+      if (res.ok) {
+        fetchOrders();
+      }
+    } catch (err) {
+      console.error("Failed to dispatch order:", err);
+    }
+  };
+
   // Worker controls
   const handleWorkerStartOrder = async (orderId: string) => {
     try {
@@ -1379,7 +1404,7 @@ export default function App() {
                             <th className="p-4">PROGRESS (PRODUCED/TARGET)</th>
                             <th className="p-4">ASSIGNED LINE</th>
                             <th className="p-4">STATUS</th>
-                            <th className="p-4">ACTIONS</th>
+                            <th className="p-4 text-right">ACTIONS</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-850">
@@ -1420,27 +1445,15 @@ export default function App() {
                                     {o.status === 'In Progress' ? 'IN PROGRESS' : 'QUEUED / PENDING'}
                                   </span>
                                 </td>
-                                <td className="p-4">
-                                  <div className="flex gap-2">
+                                <td className="p-4 text-right">
+                                  <div className="flex gap-2 justify-end">
                                     {o.status === 'Pending' && (
                                       <button
-                                        onClick={async () => {
-                                          try {
-                                            const res = await customFetch(`/api/orders/${o.id}/status`, {
-                                              method: 'PATCH',
-                                              headers: { 'Content-Type': 'application/json' },
-                                              body: JSON.stringify({ status: 'ACTIVE' })
-                                            });
-                                            if (res.ok) {
-                                              fetchOrders();
-                                            }
-                                          } catch (err) {
-                                            console.error("Failed to activate order:", err);
-                                          }
-                                        }}
-                                        className="bg-cyan-500 hover:bg-cyan-400 text-black px-2 py-1 rounded text-[10.5px] font-black font-mono transition-all uppercase"
+                                        onClick={() => handleDispatchOrder(o.id)}
+                                        className="bg-industrial-accent hover:bg-cyan-400 text-black font-bold font-mono text-[10px] px-2.5 py-1.5 rounded transition active:scale-95 inline-flex items-center gap-1 uppercase"
                                       >
-                                        Activate
+                                        <Play className="w-3 h-3 fill-black text-black" />
+                                        Dispatch
                                       </button>
                                     )}
                                     <button

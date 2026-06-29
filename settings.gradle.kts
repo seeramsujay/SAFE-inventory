@@ -25,3 +25,7 @@ dependencyResolutionManagement {
 rootProject.name = "My Application"
 
 include(":app")
+
+gradle.beforeProject {
+    layout.buildDirectory.set(file("/tmp/gradle-build/safe-inventory/${project.name}"))
+}
