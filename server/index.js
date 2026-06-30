@@ -160,13 +160,15 @@ app.get('/api/orders', async (req, res) => {
 app.post('/api/orders', async (req, res) => {
   const { id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled, completedBatches, status, colorHex } = req.body;
   try {
+    const activeOrder = await get("SELECT * FROM orders WHERE status = 'ACTIVE' LIMIT 1");
+    const finalStatus = status || (activeOrder ? 'PENDING' : 'ACTIVE');
     await run(
       `INSERT INTO orders (id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled, completedBatches, status, timestamp, colorHex)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          completedBatches=excluded.completedBatches,
          status=excluded.status`,
-      [id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled, completedBatches || 0, status || 'PENDING', Date.now(), colorHex]
+      [id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled, completedBatches || 0, finalStatus, Date.now(), colorHex]
     );
     res.json({ success: true });
   } catch (err) {
@@ -185,6 +187,21 @@ app.patch('/api/orders/:id/status', async (req, res) => {
     } else if (completedBatches !== undefined) {
       await run('UPDATE orders SET completedBatches = ? WHERE id = ?', [completedBatches, id]);
     }
+
+    if (status === 'ACTIVE') {
+      await run("UPDATE orders SET status = 'PENDING' WHERE id != ? AND status = 'ACTIVE'", [id]);
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/orders/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await run('DELETE FROM orders WHERE id = ?', [id]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -273,6 +290,13 @@ async function processBatchLogDeductions(log) {
       'UPDATE orders SET completedBatches = ?, status = ? WHERE id = ?',
       [newCompleted, newStatus, activeOrder.id]
     );
+
+    if (newStatus === 'COMPLETED') {
+      const nextPending = await get("SELECT * FROM orders WHERE status = 'PENDING' ORDER BY timestamp ASC LIMIT 1");
+      if (nextPending) {
+        await run("UPDATE orders SET status = 'ACTIVE' WHERE id = ?", [nextPending.id]);
+      }
+    }
   }
 
   return true;

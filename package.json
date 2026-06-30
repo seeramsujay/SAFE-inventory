@@ -8,6 +8,7 @@
     "server": "node server/index.js",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "emulator": "node scripts/worker_emulator.js",
     "cap:sync": "pnpm cap sync",
     "cap:copy": "pnpm cap copy",
     "cap:update": "pnpm cap update",

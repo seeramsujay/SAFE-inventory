@@ -85,5 +85,20 @@ The system runs a standalone, SQLite-backed Express backend server at `server/in
 
 ---
 
-## 📄 License
-This project is licensed under the MIT License - see the LICENSE file for details.
+## 💻 Floor Terminal Emulator (Lightweight CLI)
+A lightweight command-line companion script is included to emulate a physical shop-floor Android tablet terminal. It enables testing the complete bi-directional order dispatch and batch completion loop without running Android Studio or a heavy emulator.
+
+To run the emulator:
+1. Ensure the backend server is running (`npm run dev` or `npm run server`).
+2. Open a separate terminal window and execute:
+   ```bash
+   npm run emulator
+   ```
+3. Use the following keyboard controls inside the emulator CLI:
+   * Press `c` to complete a batch for the current active order. This automatically:
+     * Registers a new production batch log on the server.
+     * Deducts the appropriate raw ingredients from inventory.
+     * Syncs order progress in real-time.
+   * Press `q` to quit the emulator.
+
+---

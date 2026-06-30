@@ -434,6 +434,26 @@ export default function App() {
     return () => clearInterval(interval);
   }, [logs]);
 
+  // Keep worker active order and progress synced with the backend orders state in real-time
+  useEffect(() => {
+    if (workerToken) {
+      const activeOrder = orders.find(o => o.status === 'In Progress');
+      if (activeOrder) {
+        if (activeWorkerOrderId !== activeOrder.id) {
+          setActiveWorkerOrderId(activeOrder.id);
+        }
+        if (workerUnitsProducedInput !== activeOrder.unitsProduced) {
+          setWorkerUnitsProducedInput(activeOrder.unitsProduced);
+        }
+      } else {
+        if (activeWorkerOrderId !== null) {
+          setActiveWorkerOrderId(null);
+          setWorkerUnitsProducedInput(0);
+        }
+      }
+    }
+  }, [orders, workerToken, activeWorkerOrderId, workerUnitsProducedInput]);
+
   // Place order for preset recipe
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -443,6 +463,7 @@ export default function App() {
       return;
     }
 
+    const hasActiveOrder = orders.some(o => o.status === 'In Progress');
     const newOrder = {
       id: `ORD-${1000 + orders.length + 1}`,
       productKey: product.id,
@@ -450,7 +471,7 @@ export default function App() {
       productNameHindi: product.name,
       totalBatchesScheduled: productionMode === 'batches' ? orderTargetBatches : Math.ceil(orderTargetUnits / 1250),
       completedBatches: 0,
-      status: 'PENDING',
+      status: hasActiveOrder ? 'PENDING' : 'ACTIVE',
       colorHex: product.colorHex
     };
 
@@ -1358,12 +1379,13 @@ export default function App() {
                             <th className="p-4">PROGRESS (PRODUCED/TARGET)</th>
                             <th className="p-4">ASSIGNED LINE</th>
                             <th className="p-4">STATUS</th>
+                            <th className="p-4">ACTIONS</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-850">
                           {orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="text-center p-8 text-gray-500 italic">
+                              <td colSpan={6} className="text-center p-8 text-gray-500 italic">
                                 NO ACTIVE FLOOR ORDERS. DISPATCH A RECIPE ABOVE TO START.
                               </td>
                             </tr>
@@ -1397,6 +1419,50 @@ export default function App() {
                                     <span className={`w-1.5 h-1.5 rounded-full ${o.status === 'In Progress' ? 'bg-[#FF6B00] animate-pulse' : 'bg-yellow-500'}`}></span>
                                     {o.status === 'In Progress' ? 'IN PROGRESS' : 'QUEUED / PENDING'}
                                   </span>
+                                </td>
+                                <td className="p-4">
+                                  <div className="flex gap-2">
+                                    {o.status === 'Pending' && (
+                                      <button
+                                        onClick={async () => {
+                                          try {
+                                            const res = await customFetch(`/api/orders/${o.id}/status`, {
+                                              method: 'PATCH',
+                                              headers: { 'Content-Type': 'application/json' },
+                                              body: JSON.stringify({ status: 'ACTIVE' })
+                                            });
+                                            if (res.ok) {
+                                              fetchOrders();
+                                            }
+                                          } catch (err) {
+                                            console.error("Failed to activate order:", err);
+                                          }
+                                        }}
+                                        className="bg-cyan-500 hover:bg-cyan-400 text-black px-2 py-1 rounded text-[10.5px] font-black font-mono transition-all uppercase"
+                                      >
+                                        Activate
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={async () => {
+                                        if (window.confirm(`CONFIRM: Delete order ${o.id}?`)) {
+                                          try {
+                                            const res = await customFetch(`/api/orders/${o.id}`, {
+                                              method: 'DELETE'
+                                            });
+                                            if (res.ok) {
+                                              fetchOrders();
+                                            }
+                                          } catch (err) {
+                                            console.error("Failed to delete order:", err);
+                                          }
+                                        }
+                                      }}
+                                      className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/40 px-2 py-1 rounded text-[10.5px] font-black font-mono transition-all uppercase"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             ))

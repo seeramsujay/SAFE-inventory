@@ -489,6 +489,9 @@ class IndustrialViewModel(
                                             activeProductNameEnglish.value = "No Active Order"
                                             activeProductNameHindi.value = "कोई सक्रिय आदेश नहीं"
                                             activeProductColorHex.value = "#7F7F7F"
+                                            activeBatchCountCompleted.value = 0
+                                            activeBatchCountTotal.value = 0
+                                            batchId.value = "B-0000"
                                         }
                                     }
                                 }
@@ -498,7 +501,7 @@ class IndustrialViewModel(
                         android.util.Log.e("NexusPoll", "Failed loading orders: ${e.message}")
                     }
                 }
-                kotlinx.coroutines.delay(10000)
+                kotlinx.coroutines.delay(2000)
             }
         }
     }

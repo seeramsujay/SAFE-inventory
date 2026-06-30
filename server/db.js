@@ -123,6 +123,54 @@ async function executeSupabaseQuery(query, params = [], mode = 'run') {
       return { changes: 1 };
     }
 
+    // 5.5. SELECT * FROM orders WHERE status = 'ACTIVE' LIMIT 1
+    if (cleaned === "SELECT * FROM orders WHERE status = 'ACTIVE' LIMIT 1") {
+      const res = await fetch(`${supabaseUrl}/rest/v1/orders?status=eq.ACTIVE&limit=1`, { headers });
+      if (!res.ok) throw new Error(await res.text());
+      const rows = await res.json();
+      return rows[0] || null;
+    }
+
+    // 5.6. SELECT * FROM orders WHERE status = 'PENDING' ORDER BY timestamp ASC LIMIT 1
+    if (cleaned === "SELECT * FROM orders WHERE status = 'PENDING' ORDER BY timestamp ASC LIMIT 1") {
+      const res = await fetch(`${supabaseUrl}/rest/v1/orders?status=eq.PENDING&order=timestamp.asc&limit=1`, { headers });
+      if (!res.ok) throw new Error(await res.text());
+      const rows = await res.json();
+      return rows[0] || null;
+    }
+
+    // 5.7. UPDATE orders SET status = 'ACTIVE' WHERE id = ?
+    if (cleaned === "UPDATE orders SET status = 'ACTIVE' WHERE id = ?") {
+      const res = await fetch(`${supabaseUrl}/rest/v1/orders?id=eq.${params[0]}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ status: 'ACTIVE' })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return { changes: 1 };
+    }
+
+    // 5.8. UPDATE orders SET status = 'PENDING' WHERE id != ? AND status = 'ACTIVE'
+    if (cleaned === "UPDATE orders SET status = 'PENDING' WHERE id != ? AND status = 'ACTIVE'") {
+      const res = await fetch(`${supabaseUrl}/rest/v1/orders?id=neq.${params[0]}&status=eq.ACTIVE`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ status: 'PENDING' })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return { changes: 1 };
+    }
+
+    // 5.9. DELETE FROM orders WHERE id = ?
+    if (cleaned === "DELETE FROM orders WHERE id = ?") {
+      const res = await fetch(`${supabaseUrl}/rest/v1/orders?id=eq.${params[0]}`, {
+        method: 'DELETE',
+        headers
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return { changes: 1 };
+    }
+
     // 6. SELECT * FROM orders WHERE ... ACTIVE LIMIT 1
     if (cleaned.includes("status = 'ACTIVE' LIMIT 1") || cleaned.includes("status = 'ACTIVE' limit 1")) {
       const name = params[0];
