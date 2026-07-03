@@ -388,30 +388,14 @@ class IndustrialViewModel(
                 if (com.example.data.PreferencesManager.isPaired(getApplication())) {
                     val serverUrl = com.example.data.PreferencesManager.getServerUrl(getApplication())
                     val stationToken = com.example.data.PreferencesManager.getStationToken(getApplication())
-                    
-                    try {
-                        val validateBuilder = okhttp3.Request.Builder()
-                        val valUrl = if (serverUrl.endsWith("/api/auth/validate")) serverUrl else "$serverUrl/api/auth/validate"
-                        validateBuilder.url(valUrl)
-                            .addHeader("Authorization", "Bearer $stationToken")
-                        val validateRequest = validateBuilder.build()
-                        client.newCall(validateRequest).execute().use { response ->
-                            if (response.code == 401 || response.code == 403) {
-                                viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                                    clearPairing()
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e("NexusPoll", "Failed validating token: ${e.message}")
-                    }
 
+                    // 1. Sync products first so the screen can always resolve product names
                     try {
-                        val prodBuilder = okhttp3.Request.Builder()
-                        val prodUrl = if (serverUrl.endsWith("/api/products")) serverUrl else "$serverUrl/api/products"
-                        prodBuilder.url(prodUrl)
+                        val prodUrl = "$serverUrl/api/products"
+                        val prodRequest = okhttp3.Request.Builder()
+                            .url(prodUrl)
                             .addHeader("Authorization", "Bearer $stationToken")
-                        val prodRequest = prodBuilder.build()
+                            .build()
                         client.newCall(prodRequest).execute().use { response ->
                             if (response.isSuccessful) {
                                 val bodyStr = response.body?.string()
@@ -427,7 +411,6 @@ class IndustrialViewModel(
                                         val isActiveProd = obj.optBoolean("isActive", true)
                                         val manualFile = if (obj.isNull("manualFileName")) null else obj.optString("manualFileName")
                                         val nominalDuration = obj.optInt("nominalBatchDurationSec", 420)
-
                                         val productEntity = com.example.data.ProductEntity(
                                             id = id,
                                             name = name,
@@ -447,12 +430,13 @@ class IndustrialViewModel(
                         android.util.Log.e("NexusPoll", "Failed to sync products: ${e.message}")
                     }
 
+                    // 2. Fetch and apply active orders — the primary data the screen needs
                     try {
-                        val requestBuilder = okhttp3.Request.Builder()
-                        val ordUrl = if (serverUrl.endsWith("/api/orders")) serverUrl else "$serverUrl/api/orders"
-                        requestBuilder.url(ordUrl)
+                        val ordUrl = "$serverUrl/api/orders"
+                        val request = okhttp3.Request.Builder()
+                            .url(ordUrl)
                             .addHeader("Authorization", "Bearer $stationToken")
-                        val request = requestBuilder.build()
+                            .build()
                         client.newCall(request).execute().use { response ->
                             if (response.isSuccessful) {
                                 val bodyStr = response.body?.string()
@@ -492,7 +476,6 @@ class IndustrialViewModel(
                                             }
                                         }
 
-                                        // Capture first PENDING order for the NEXT JOB card
                                         if (status == "PENDING" && firstPendingHindi == "--") {
                                             firstPendingHindi = obj.optString("productNameHindi", "--")
                                             firstPendingEnglish = obj.optString("productNameEnglish", "--")
@@ -520,6 +503,33 @@ class IndustrialViewModel(
                         }
                     } catch (e: Exception) {
                         android.util.Log.e("NexusPoll", "Failed loading orders: ${e.message}")
+                    }
+
+                    // 3. Validate token LAST — only clears pairing if server explicitly says invalid.
+                    //    Network errors are ignored to prevent false logouts on brief connectivity drops.
+                    try {
+                        val valUrl = "$serverUrl/api/auth/validate"
+                        val valRequest = okhttp3.Request.Builder()
+                            .url(valUrl)
+                            .addHeader("Authorization", "Bearer $stationToken")
+                            .build()
+                        client.newCall(valRequest).execute().use { response ->
+                            if (response.isSuccessful) {
+                                val bodyStr = response.body?.string()
+                                if (!bodyStr.isNullOrBlank()) {
+                                    val json = org.json.JSONObject(bodyStr)
+                                    if (!json.optBoolean("valid", true)) {
+                                        android.util.Log.w("NexusPoll", "Token invalidated by server: ${json.optString("reason")}")
+                                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                                            clearPairing()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // Network error during validate — safe to ignore, orders already fetched above
+                        android.util.Log.w("NexusPoll", "Validate check skipped (network): ${e.message}")
                     }
                 }
                 kotlinx.coroutines.delay(2000)

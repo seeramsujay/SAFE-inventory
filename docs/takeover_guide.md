@@ -41,6 +41,18 @@ pnpm dev
 * **Frontend Dashboard**: Accessible at `http://localhost:3005`
 * **Local Backend API**: Accessible at `http://localhost:3001`
 
+### Running on a Windows Machine
+
+To run the unified dashboard and server on a Windows machine:
+1. Double-click the launcher script at the root of the project: [run_windows.bat](file:///home/suzaykid/Projects/SAFE-inventory/run_windows.bat).
+2. The script will automatically:
+   * Validate that Node.js is installed.
+   * Install the `pnpm` manager if it is missing.
+   * Fetch all package dependencies (`node_modules`).
+   * Compile the production React bundle into static assets (`dist`).
+   * Start the unified Express server and open your default web browser to: `http://localhost:3001`.
+3. Once running, you can connect your tablet app to your Windows machine's IP (e.g. your local LAN IP or Tailscale IP) on port `3001`.
+
 ---
 
 ## 4. Compiling the Android Worker App

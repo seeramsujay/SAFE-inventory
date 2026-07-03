@@ -101,9 +101,25 @@ app.post('/api/auth/token', async (req, res) => {
   }
 });
 
-app.get('/api/auth/validate', authenticateToken, (req, res) => {
-  res.json({ success: true, stationId: req.stationId });
+app.get('/api/auth/validate', async (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) return res.json({ valid: false, reason: 'no_token' });
+
+  const masterApiKey = 'sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O';
+  if (token === masterApiKey) return res.json({ valid: true, stationId: req.headers['x-station-id'] || 'KIOSK-01' });
+
+  try {
+    const validToken = await get('SELECT * FROM station_tokens WHERE token = ?', [token]);
+    if (!validToken) return res.json({ valid: false, reason: 'unknown_token' });
+    if (Date.now() > validToken.expiresAt) return res.json({ valid: false, reason: 'expired' });
+    res.json({ valid: true, stationId: validToken.stationId });
+  } catch (err) {
+    res.json({ valid: false, reason: 'db_error' });
+  }
 });
+
 
 // 2. Products endpoints
 app.get('/api/products', async (req, res) => {
