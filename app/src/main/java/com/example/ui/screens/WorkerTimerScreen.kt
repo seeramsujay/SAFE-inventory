@@ -39,6 +39,10 @@ fun WorkerTimerScreen(
     val activeProductNameHindi by viewModel.activeProductNameHindi.collectAsState()
     val activeProductNameEnglish by viewModel.activeProductNameEnglish.collectAsState()
     val activeProductColorHex by viewModel.activeProductColorHex.collectAsState()
+    val nextPendingHindi by viewModel.nextPendingOrderNameHindi.collectAsState()
+    val nextPendingEnglish by viewModel.nextPendingOrderNameEnglish.collectAsState()
+
+    val hasActiveOrder = activeProductNameEnglish.isNotBlank()
 
     val cardColor = remember(activeProductColorHex) {
         try {
@@ -93,7 +97,7 @@ fun WorkerTimerScreen(
                         )
                     }
 
-                    // Active Industrial Card: Cream Special (Saturated Emerald Green)
+                    // Active Industrial Card: shows the currently dispatched product
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -101,23 +105,40 @@ fun WorkerTimerScreen(
                             .border(3.dp, Color(0xFF1A1A1A))
                             .padding(24.dp)
                     ) {
-                        Text(
-                            text = activeProductNameHindi,
-                            color = Color.White,
-                            fontSize = 36.sp,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = FontFamily.SansSerif
-                        )
-                        Text(
-                            text = "ACTIVE: ${activeProductNameEnglish.uppercase()}",
-                            color = Color.White.copy(alpha = 0.8f),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
+                        if (!hasActiveOrder) {
+                            // No active order yet — waiting for server
+                            Text(
+                                text = "आदेश की प्रतीक्षा",
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                            Text(
+                                text = "AWAITING ORDER FROM CONSOLE",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        } else {
+                            Text(
+                                text = activeProductNameHindi,
+                                color = Color.White,
+                                fontSize = 36.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                            Text(
+                                text = "ACTIVE: ${activeProductNameEnglish.uppercase()}",
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
 
-                        if (activeProductNameEnglish != "No Active Order") {
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
                                 text = "सामग्री अनुपात (INGREDIENTS):",
@@ -132,7 +153,7 @@ fun WorkerTimerScreen(
                             }
                             ingredients.forEach { ing ->
                                 Text(
-                                    text = "• $ing",
+                                    text = "\u2022 $ing",
                                     color = Color.White.copy(alpha = 0.85f),
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
@@ -152,7 +173,7 @@ fun WorkerTimerScreen(
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
                         ) {
                             Text(
-                                text = "BATCH: $completedBatches / $totalBatches",
+                                text = if (hasActiveOrder) "BATCH: $completedBatches / $totalBatches" else "BATCH: -- / --",
                                 color = Color.White,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Black,
@@ -161,12 +182,12 @@ fun WorkerTimerScreen(
                         }
                     }
 
-                    // Next Job Card below the active card
+                    // Next Job Card — driven by real server data
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(Color.White)
-                            .border(3.dp, Color(0xFFE65100)) // Deep Amber/Orange border
+                            .border(3.dp, Color(0xFFE65100))
                             .padding(20.dp)
                     ) {
                         Text(
@@ -178,12 +199,22 @@ fun WorkerTimerScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "प्रीमियम प्लस",
+                            text = if (nextPendingHindi == "--") "प्रतीक्षा में कोई नहीं" else nextPendingHindi,
                             color = Color(0xFFE65100),
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Black,
                             fontFamily = FontFamily.SansSerif
                         )
+                        if (nextPendingEnglish != "--") {
+                            Text(
+                                text = nextPendingEnglish.uppercase(),
+                                color = Color(0xFFE65100).copy(alpha = 0.65f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+                        }
                     }
 
                     // View Extruder details button to toggle to Extruder diagram screen
@@ -250,85 +281,132 @@ fun WorkerTimerScreen(
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Central Status Instruction Messages
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(top = 16.dp)
-                ) {
-                    Text(
-                        text = "वर्तमान बैच चल रहा है...",
-                        color = Color.Black,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Black,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "पूरा होने पर दाईं ओर स्वाइप करें।",
-                        color = Color(0xFF1A1A1A).copy(alpha = 0.7f),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center
-                    )
-                }
-
-                // Dynamic Progress Countdown Ticker Ring (MM:SS)
-                Box(
-                    modifier = Modifier.size(260.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    // Custom Draw Canvas Progress Arc (Brutalist thick stroke)
-                    val progressRatio = (remainingSec.toFloat() / 480f).coerceIn(0f, 1f)
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        drawCircle(
-                            color = Color.White,
-                            radius = size.minDimension / 2 - 8.dp.toPx()
-                        )
-                        // Background track arc
-                        drawArc(
-                            color = Color(0xFFD8DADC),
-                            startAngle = 0f,
-                            sweepAngle = 360f,
-                            useCenter = false,
-                            style = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Butt)
-                        )
-                        // Progress arc
-                        drawArc(
-                            color = Color(0xFF1A1A1A),
-                            startAngle = -90f,
-                            sweepAngle = 360f * progressRatio,
-                            useCenter = false,
-                            style = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Butt)
-                        )
-                    }
-
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (!hasActiveOrder) {
+                    // ── WAITING STATE ──────────────────────────────────────────
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Text(
-                            text = formattedTime,
+                            text = "🕐",
+                            fontSize = 64.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Text(
+                            text = "कंसोल से आदेश की प्रतीक्षा",
                             color = Color.Black,
-                            fontSize = 58.sp,
+                            fontSize = 26.sp,
                             fontWeight = FontWeight.Black,
-                            fontFamily = FontFamily.Monospace,
-                            letterSpacing = (-1).sp
+                            textAlign = TextAlign.Center
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "समय शेष (REMAINING)",
-                            color = Color(0xFF1A1A1A).copy(alpha = 0.6f),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            text = "WAITING FOR DISPATCH FROM ADMIN CONSOLE",
+                            color = Color(0xFF1A1A1A).copy(alpha = 0.5f),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(32.dp))
+                        // Greyed-out disabled swipe to make it clear swipe does nothing
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(64.dp)
+                                .background(Color(0xFFD0D0D0))
+                                .border(2.dp, Color(0xFF9E9E9E)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "⟶  कोई सक्रिय बैच नहीं / NO ACTIVE BATCH",
+                                color = Color(0xFF9E9E9E),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                } else {
+                    // ── ACTIVE BATCH STATE ─────────────────────────────────────
+                    // Central Status Instruction Messages
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(top = 16.dp)
+                    ) {
+                        Text(
+                            text = "वर्तमान बैच चल रहा है...",
+                            color = Color.Black,
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.Black,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "पूरा होने पर दाईं ओर स्वाइप करें।",
+                            color = Color(0xFF1A1A1A).copy(alpha = 0.7f),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
                         )
                     }
-                }
 
-                // Swipe-To-Confirm completion slider track
-                SwipeToConfirmSlider(
-                    text = "बैच पूरा करने के लिए दाईं ओर स्वाइप करें",
-                    successText = "बैच पूरा / BATCH CONFIRMED",
-                    onConfirm = {
-                        viewModel.completeActiveBatch()
-                        showSuccessFlash = true
+                    // Dynamic Progress Countdown Ticker Ring (MM:SS)
+                    Box(
+                        modifier = Modifier.size(260.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val progressRatio = (remainingSec.toFloat() / 480f).coerceIn(0f, 1f)
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            drawCircle(
+                                color = Color.White,
+                                radius = size.minDimension / 2 - 8.dp.toPx()
+                            )
+                            drawArc(
+                                color = Color(0xFFD8DADC),
+                                startAngle = 0f,
+                                sweepAngle = 360f,
+                                useCenter = false,
+                                style = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Butt)
+                            )
+                            drawArc(
+                                color = Color(0xFF1A1A1A),
+                                startAngle = -90f,
+                                sweepAngle = 360f * progressRatio,
+                                useCenter = false,
+                                style = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Butt)
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = formattedTime,
+                                color = Color.Black,
+                                fontSize = 58.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace,
+                                letterSpacing = (-1).sp
+                            )
+                            Text(
+                                text = "समय शेष (REMAINING)",
+                                color = Color(0xFF1A1A1A).copy(alpha = 0.6f),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
-                )
+
+                    // Swipe-To-Confirm completion slider — only active when order is dispatched
+                    SwipeToConfirmSlider(
+                        text = "बैच पूरा करने के लिए दाईं ओर स्वाइप करें",
+                        successText = "बैच पूरा / BATCH CONFIRMED",
+                        onConfirm = {
+                            viewModel.completeActiveBatch()
+                            showSuccessFlash = true
+                        }
+                    )
+                }
             }
         }
 

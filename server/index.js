@@ -61,7 +61,7 @@ async function authenticateToken(req, res, next) {
   }
 
   const masterApiKey = 'sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O';
-  if (token === masterApiKey || (process.env.SUPABASE_ANON_KEY && token === process.env.SUPABASE_ANON_KEY)) {
+  if (token === masterApiKey) {
     req.stationId = req.headers['x-station-id'] || 'KIOSK-01';
     return next();
   }
@@ -190,6 +190,14 @@ app.patch('/api/orders/:id/status', async (req, res) => {
 
     if (status === 'ACTIVE') {
       await run("UPDATE orders SET status = 'PENDING' WHERE id != ? AND status = 'ACTIVE'", [id]);
+    } else if (status === 'COMPLETED' || status === 'CANCELLED') {
+      const activeOrder = await get("SELECT * FROM orders WHERE status = 'ACTIVE' LIMIT 1");
+      if (!activeOrder) {
+        const nextPending = await get("SELECT * FROM orders WHERE status = 'PENDING' ORDER BY timestamp ASC LIMIT 1");
+        if (nextPending) {
+          await run("UPDATE orders SET status = 'ACTIVE' WHERE id = ?", [nextPending.id]);
+        }
+      }
     }
 
     res.json({ success: true });
@@ -201,7 +209,18 @@ app.patch('/api/orders/:id/status', async (req, res) => {
 app.delete('/api/orders/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    const targetOrder = await get("SELECT * FROM orders WHERE id = ?", [id]);
     await run('DELETE FROM orders WHERE id = ?', [id]);
+
+    if (targetOrder && targetOrder.status === 'ACTIVE') {
+      const activeOrder = await get("SELECT * FROM orders WHERE status = 'ACTIVE' LIMIT 1");
+      if (!activeOrder) {
+        const nextPending = await get("SELECT * FROM orders WHERE status = 'PENDING' ORDER BY timestamp ASC LIMIT 1");
+        if (nextPending) {
+          await run("UPDATE orders SET status = 'ACTIVE' WHERE id = ?", [nextPending.id]);
+        }
+      }
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

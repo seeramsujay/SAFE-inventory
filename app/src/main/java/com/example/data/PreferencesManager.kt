@@ -37,7 +37,7 @@ object PreferencesManager {
     }
 
     fun getServerUrl(context: Context): String {
-        return getSharedPrefs(context).getString(KEY_SERVER_URL, "http://10.0.2.2:3001") ?: "http://10.0.2.2:3001"
+        return getSharedPrefs(context).getString(KEY_SERVER_URL, "") ?: ""
     }
 
     fun getStationToken(context: Context): String {

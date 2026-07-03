@@ -23,6 +23,15 @@ object NetworkUtils {
      * 3. Configures custom timeouts for connection stability on the factory floor.
      */
     fun getOkHttpClient(): OkHttpClient {
+        if (!com.example.BuildConfig.DEBUG) {
+            // Production/Release: Enforce full standard SSL/TLS validation and timeouts
+            return OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .writeTimeout(20, TimeUnit.SECONDS)
+                .build()
+        }
+
         try {
             // Create a trust manager that does not validate certificate chains
             // This is required because temporary development tunnels (e.g. localtunnel) often

@@ -59,7 +59,7 @@ class IndustrialViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val pendingLogs: StateFlow<List<OutboxEntity>> = repository.allPendingLogs
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // 2. Active Screen State/Layout state
     // Screens: "login", "worker_timer", "worker_extruder", "emergency", "admin"
@@ -80,14 +80,19 @@ class IndustrialViewModel(
         pinInput.value = ""
     }
 
-    // 4. Active Job state (Worker views)
-    val activeBatchCountCompleted = MutableStateFlow(4)
-    val activeBatchCountTotal = MutableStateFlow(14)
-    val batchId = MutableStateFlow("B-4902")
-    val activeProductNameEnglish = MutableStateFlow("Cream Special")
-    val activeProductNameHindi = MutableStateFlow("क्रीम स्पेशल")
-    val activeProductColorHex = MutableStateFlow("#00875A")
-    val activeOrderId = MutableStateFlow("ORD-1001")
+    // 4. Active Job state (Worker views) — all initialized to neutral/empty state.
+    // These get overwritten by the first successful poll from the server (~2s after boot).
+    val activeBatchCountCompleted = MutableStateFlow(0)
+    val activeBatchCountTotal = MutableStateFlow(0)
+    val batchId = MutableStateFlow("--")
+    val activeProductNameEnglish = MutableStateFlow("")
+    val activeProductNameHindi = MutableStateFlow("")
+    val activeProductColorHex = MutableStateFlow("#1A1A1A")
+    val activeOrderId = MutableStateFlow("")
+
+    // Next pending order name — shown in the NEXT JOB card on WorkerTimerScreen
+    val nextPendingOrderNameHindi = MutableStateFlow("--")
+    val nextPendingOrderNameEnglish = MutableStateFlow("--")
 
     // Countdown Timer logic: Starting from 6:42 (402 seconds)
     private val _timerRemainingSec = MutableStateFlow(402)
@@ -96,17 +101,20 @@ class IndustrialViewModel(
     private var timerJob: Job? = null
 
     private fun startLiveMonitoring() {
-        // Ticking countdown timer
+        // Ticking countdown timer — only runs while an active order is dispatched
         timerJob = viewModelScope.launch {
             while (true) {
                 delay(1000)
-                if (_timerRemainingSec.value > 0) {
+                val hasActiveOrder = activeProductNameEnglish.value.isNotBlank()
+                if (hasActiveOrder && _timerRemainingSec.value > 0) {
                     _timerRemainingSec.value -= 1
-                } else {
-                    // Loop timer (e.g. reset to 8 mins of next batch)
-                    _timerRemainingSec.value = 480
+                } else if (!hasActiveOrder) {
+                    // No active order — hold timer at 0 so the ring is empty
+                    _timerRemainingSec.value = 0
                 }
-                
+                // Timer reaching 0 with an active order means the batch time elapsed;
+                // the worker can still complete it via swipe whenever ready.
+
                 // Fluctuating temperature between 176 and 181
                 val offset = Random.nextInt(-2, 3)
                 val targetTemp = 178 + offset
@@ -364,8 +372,10 @@ class IndustrialViewModel(
         val syncWorkRequest = androidx.work.OneTimeWorkRequest.Builder(SyncWorker::class.java)
             .setConstraints(constraints)
             .build()
+        // KEEP: never cancel a running sync mid-flight. If sync is already running,
+        // leave it. WorkManager will pick up any remaining outbox items on the next trigger.
         androidx.work.WorkManager.getInstance(getApplication())
-            .enqueueUniqueWork("nexus_offline_sync", androidx.work.ExistingWorkPolicy.REPLACE, syncWorkRequest)
+            .enqueueUniqueWork("nexus_offline_sync", androidx.work.ExistingWorkPolicy.KEEP, syncWorkRequest)
     }
 
     private var pollJob: kotlinx.coroutines.Job? = null
@@ -375,10 +385,10 @@ class IndustrialViewModel(
         pollJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val client = NetworkUtils.getOkHttpClient()
             while (true) {
-                val serverUrl = com.example.data.PreferencesManager.getServerUrl(getApplication())
-                val stationToken = com.example.data.PreferencesManager.getStationToken(getApplication())
-                
-                if (serverUrl.isNotBlank() && stationToken.isNotBlank()) {
+                if (com.example.data.PreferencesManager.isPaired(getApplication())) {
+                    val serverUrl = com.example.data.PreferencesManager.getServerUrl(getApplication())
+                    val stationToken = com.example.data.PreferencesManager.getStationToken(getApplication())
+                    
                     try {
                         val validateBuilder = okhttp3.Request.Builder()
                         val valUrl = if (serverUrl.endsWith("/api/auth/validate")) serverUrl else "$serverUrl/api/auth/validate"
@@ -395,9 +405,7 @@ class IndustrialViewModel(
                     } catch (e: Exception) {
                         android.util.Log.e("NexusPoll", "Failed validating token: ${e.message}")
                     }
-                }
 
-                if (serverUrl.isNotBlank()) {
                     try {
                         val prodBuilder = okhttp3.Request.Builder()
                         val prodUrl = if (serverUrl.endsWith("/api/products")) serverUrl else "$serverUrl/api/products"
@@ -438,9 +446,7 @@ class IndustrialViewModel(
                     } catch (e: Exception) {
                         android.util.Log.e("NexusPoll", "Failed to sync products: ${e.message}")
                     }
-                }
 
-                if (serverUrl.isNotBlank()) {
                     try {
                         val requestBuilder = okhttp3.Request.Builder()
                         val ordUrl = if (serverUrl.endsWith("/api/orders")) serverUrl else "$serverUrl/api/orders"
@@ -453,9 +459,13 @@ class IndustrialViewModel(
                                 if (!bodyStr.isNullOrBlank()) {
                                     val jsonArray = org.json.JSONArray(bodyStr)
                                     var foundActive = false
+                                    var firstPendingHindi = "--"
+                                    var firstPendingEnglish = "--"
                                     for (i in 0 until jsonArray.length()) {
                                         val obj = jsonArray.getJSONObject(i)
-                                        if (obj.optString("status") == "ACTIVE") {
+                                        val status = obj.optString("status")
+
+                                        if (status == "ACTIVE" && !foundActive) {
                                             foundActive = true
                                             val id = obj.optString("id")
                                             val productKey = obj.optString("productKey")
@@ -480,18 +490,29 @@ class IndustrialViewModel(
                                                     batchId.value = "B-${id}"
                                                 }
                                             }
-                                            break
+                                        }
+
+                                        // Capture first PENDING order for the NEXT JOB card
+                                        if (status == "PENDING" && firstPendingHindi == "--") {
+                                            firstPendingHindi = obj.optString("productNameHindi", "--")
+                                            firstPendingEnglish = obj.optString("productNameEnglish", "--")
                                         }
                                     }
+
+                                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                                        nextPendingOrderNameHindi.value = firstPendingHindi
+                                        nextPendingOrderNameEnglish.value = firstPendingEnglish
+                                    }
+
                                     if (!foundActive) {
                                         viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
                                             activeOrderId.value = ""
-                                            activeProductNameEnglish.value = "No Active Order"
-                                            activeProductNameHindi.value = "कोई सक्रिय आदेश नहीं"
-                                            activeProductColorHex.value = "#7F7F7F"
+                                            activeProductNameEnglish.value = ""
+                                            activeProductNameHindi.value = ""
+                                            activeProductColorHex.value = "#1A1A1A"
                                             activeBatchCountCompleted.value = 0
                                             activeBatchCountTotal.value = 0
-                                            batchId.value = "B-0000"
+                                            batchId.value = "--"
                                         }
                                     }
                                 }

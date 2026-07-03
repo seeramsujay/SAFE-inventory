@@ -160,6 +160,7 @@ const getDefaultPairingUrl = () => {
                   hostname === '127.0.0.1' || 
                   /^192\.168\./.test(hostname) || 
                   /^10\./.test(hostname) || 
+                  /^100\./.test(hostname) || 
                   /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname);
   
   if (isLocal) {
@@ -465,7 +466,7 @@ export default function App() {
 
     const hasActiveOrder = orders.some(o => o.status === 'In Progress');
     const newOrder = {
-      id: `ORD-${1000 + orders.length + 1}`,
+      id: `ORD-${Date.now()}`,
       productKey: product.id,
       productNameEnglish: product.englishName,
       productNameHindi: product.name,
@@ -1058,7 +1059,7 @@ export default function App() {
 
         <footer className="border-t border-gray-850 py-4 px-6 bg-[#12151C] text-center mt-auto">
           <p className="text-[10px] text-gray-500 font-mono uppercase tracking-wider">
-            Industrial Nexus Floor Terminal App | Vercel Serverless Console
+            Industrial Nexus Floor Terminal App | Self-Hosted Express Console
           </p>
         </footer>
       </div>
@@ -2114,18 +2115,18 @@ export default function App() {
 
               <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded flex flex-col gap-4 shadow-lg">
                 <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
-                  <Wifi className="h-5 w-5 text-[#10B981]" />
-                  VERCEL OUT-OF-THE-BOX CONFIG
+                  <Wifi className="h-5 w-5 text-industrial-accent" />
+                  SELF-HOSTED EXPRESS CONFIG
                 </h3>
                 <p className="text-xs text-gray-400 font-mono leading-relaxed">
-                  Excellent! This workspace is pre-integrated. When pushing or linking to Vercel:
+                  Excellent! The workspace is configured for local or LAN deployments:
                 </p>
 
                 <ul className="text-xs font-mono flex flex-col gap-2.5 text-gray-300 list-disc list-inside">
-                  <li><strong>ROOT IDENTIFIER:</strong> Vercel auto-scans package.json directly.</li>
-                  <li><strong>BUILD INSTRUCTION:</strong> Executes <code className="bg-gray-900 border border-gray-800 text-industrial-accent px-1.5 py-0.5 rounded">npm run build</code> seamlessly.</li>
-                  <li><strong>OUTPUT DIRECTORY:</strong> Styled HTML / React bundle is dumped into the <code className="bg-gray-900 border border-gray-800 text-industrial-accent px-1.5 py-0.5 rounded">dist</code> directory.</li>
-                  <li><strong>ZERO DATABASE INSTANCES COST:</strong> Runs fully serverless with client-side reactive localStorage fallback! Ready to demo in seconds.</li>
+                  <li><strong>DATABASE:</strong> Local persistent SQLite stored in <code className="bg-gray-900 border border-gray-800 text-industrial-accent px-1.5 py-0.5 rounded">nexus.db</code>.</li>
+                  <li><strong>API BACKEND:</strong> Express server listening on port <code className="bg-gray-900 border border-gray-800 text-industrial-accent px-1.5 py-0.5 rounded">3001</code>.</li>
+                  <li><strong>FRONTEND PORT:</strong> Vite development server running on port <code className="bg-gray-900 border border-gray-800 text-industrial-accent px-1.5 py-0.5 rounded">3005</code>.</li>
+                  <li><strong>PRODUCTION RUN:</strong> Static assets from <code className="bg-gray-900 border border-gray-800 text-industrial-accent px-1.5 py-0.5 rounded">dist</code> are served by Express.</li>
                 </ul>
               </div>
 
@@ -2291,7 +2292,7 @@ export default function App() {
       <footer className="border-t border-industrial-border py-6 px-6 bg-[#0B0D10] text-center select-none mt-auto">
         <div className="max-w-[1500px] mx-auto text-xs text-gray-400 font-mono flex flex-col sm:flex-row justify-between items-center gap-4">
           <span>INDUSTRIAL NEXUS INC. COGNIZANT PLATFORMS CO. ALL RIGHTS RESERVED.</span>
-          <span>SECURED TERMINAL ADDRESS: localhost:3000 | SERVERLESS SYNC ROUTE: LOCALSTORAGE SECURE</span>
+          <span>SECURED TERMINAL ADDRESS: localhost:3005 | SERVERLESS SYNC ROUTE: LOCALSTORAGE SECURE</span>
         </div>
       </footer>
     </div>
@@ -2321,7 +2322,7 @@ import kotlinx.serialization.encodeToString
 class CentralDatabaseSynchronizer(
     private val client: HttpClient,
     private val batchLogDao: BatchLogDao,
-    private val serverUrl: String = "https://industrial-nexus-web.vercel.app/api/sync"
+    private val serverUrl: String = "http://<server-ip>:3001/api/logs/bulk"
 ) {
     suspend fun synchronizeOfflineBatches(): Boolean {
         // 1. Fetch un-synced entries locally from Room database
@@ -2332,7 +2333,7 @@ class CentralDatabaseSynchronizer(
             // 2. Marshall record set into JSON payloads
             val jsonPayload = Json.encodeToString(localBatchList)
 
-            // 3. Dispatch to remote Vercel / Central serverless POST endpoint
+            // 3. Dispatch to self-hosted Express bulk logs endpoint
             val response: HttpResponse = client.post(serverUrl) {
                 contentType(ContentType.Application.Json)
                 setBody(jsonPayload)

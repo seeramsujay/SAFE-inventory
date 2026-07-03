@@ -1,6 +1,6 @@
 # Developer Takeover & Machine Transfer Guide
 
-This guide details how to clone, set up, and compile the **Industrial Nexus** workspace on your new, higher-performance development machine.
+This guide details how to clone, set up, compile, and run the **Industrial Nexus** workspace.
 
 ---
 
@@ -13,10 +13,10 @@ Before copying or cloning the project, ensure the following are installed:
   ```bash
   npm install -g pnpm
   ```
-* **Java Development Kit (JDK) 17**: Required for building the Android application (Gradle 9.x compatible).
+* **Java Development Kit (JDK) 21**: Required for building the Android application (Gradle 9.x compatible).
 * **Android Studio & Android SDK**:
   * Set up `ANDROID_HOME` or `ANDROID_SDK_ROOT` environment variables mapping to your SDK path.
-* **Tailscale** (If testing locally via VPN):
+* **Tailscale** (If testing locally via VPN on physical devices):
   * Install Tailscale and log in to the same tailnet as your testing tablet.
 
 ---
@@ -24,13 +24,7 @@ Before copying or cloning the project, ensure the following are installed:
 ## 2. Setting Up the Workspace
 
 1. **Clone/Copy the Project Directory** onto the new machine.
-2. **Transfer Environment Settings**:
-   * Ensure the [.env](file:///home/sunny/.Projects/SAFE-inventory/.env) file exists in the root directory:
-     ```env
-     SUPABASE_URL=https://yzxikzlrhjgjymuwqnsl.supabase.co
-     SUPABASE_ANON_KEY=sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O
-     ```
-3. **Install Dependencies**:
+2. **Install Dependencies**:
    Run this command at the root of the project to fetch all node packages:
    ```bash
    pnpm install
@@ -40,18 +34,18 @@ Before copying or cloning the project, ensure the following are installed:
 
 ## 3. Running the Web Admin Portal & Local Server
 
-To launch the local Express API backend (Port 3001) and Vite development client (Port 3000) concurrently:
+To launch the local Express API backend (Port 3001) and Vite development client (Port 3005) concurrently:
 ```bash
 pnpm dev
 ```
-* **Frontend Dashboard**: Accessible at `http://localhost:3000`
+* **Frontend Dashboard**: Accessible at `http://localhost:3005`
 * **Local Backend API**: Accessible at `http://localhost:3001`
 
 ---
 
 ## 4. Compiling the Android Worker App
 
-On your new high-performance CPU, compiling will be much faster. Run these commands from the project root:
+Run these commands from the project root:
 
 ### Compile the Native Kotlin Kiosk App
 This produces the Android worker app APK (saved in `app/build/outputs/apk/debug/app-debug.apk`):
@@ -59,18 +53,11 @@ This produces the Android worker app APK (saved in `app/build/outputs/apk/debug/
 ./gradlew :app:assembleDebug
 ```
 
-### Compile & Sync the Capacitor Admin App Wrapper
-If you want to compile and rebuild the web dashboard wrapped inside a native Android container:
-```bash
-pnpm cap:build
-```
-This builds the React project, copies static assets into the Android container, and prepares the platform files.
-
 ---
 
-## 5. Connecting and Testing (Tailscale vs Cloud)
+## 5. Pairing the Tablet (LAN / Tailscale)
 
-* **Cloud Sync (Live Production)**:
-  By default, the Android app will try to sync directly to your live Supabase cloud database. If the tablet has internet, it will work immediately out of the box.
-* **Local Development Sync (Tailscale)**:
-  If you are testing changes locally, find the Tailscale IP of your *new* machine (`tailscale ip -4` or via Tailscale dashboard) and update the fallback URL inside [PreferencesManager.kt](file:///home/sunny/.Projects/SAFE-inventory/app/src/main/java/com/example/data/PreferencesManager.kt#L39-L41).
+* **Emulator Development (Local Loopback)**:
+  Launch the app on the Android emulator and tap **SIMULATE SCAN** to pair to the localhost endpoint (`http://10.0.2.2:3001`).
+* **Physical Device Development (LAN / Tailscale)**:
+  Ensure the tablet and development machine are on the same Wi-Fi network or connected to the same Tailscale network. In the Admin Dashboard pairing section, input the LAN or Tailscale IP of your host machine (e.g. `http://192.168.1.50:3001`) to generate the pairing QR code, then scan it using the tablet's camera.

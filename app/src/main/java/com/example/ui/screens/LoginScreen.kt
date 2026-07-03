@@ -374,7 +374,7 @@ fun LoginScreen(
     }
 
     if (showManualSetupDialog) {
-        var inputUrl by remember { mutableStateOf("https://safe-inventory.vercel.app") }
+        var inputUrl by remember { mutableStateOf("http://10.0.2.2:3001") }
         var inputStation by remember { mutableStateOf("KIOSK-NEW") }
 
         AlertDialog(
