@@ -12,7 +12,8 @@ data class ProductEntity(
     val colorHex: String, // Saturated color token: e.g. #00875A
     val isActive: Boolean,
     val manualFileName: String? = null, // PDF manuals
-    val nominalBatchDurationSec: Int = 420
+    val nominalBatchDurationSec: Int = 420,
+    val mixtureRatios: String? = null
 )
 
 @Entity(tableName = "batch_logs")

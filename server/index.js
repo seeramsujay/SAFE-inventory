@@ -5,6 +5,24 @@ import { fileURLToPath } from 'url';
 import { run, get, all, initDb, seedData } from './db.js';
 import os from 'os';
 
+// Translation helper using Google's free translation API
+async function translateToHindi(text) {
+  if (!text) return '';
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=hi&dt=t&q=${encodeURIComponent(text)}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data[0] && data[0][0] && data[0][0][0]) {
+        return data[0][0][0];
+      }
+    }
+  } catch (err) {
+    console.error("Translation error:", err);
+  }
+  return text; // Fallback to English input
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -120,6 +138,45 @@ app.get('/api/auth/validate', async (req, res) => {
   }
 });
 
+app.post('/api/stations/break', authenticateToken, async (req, res) => {
+  const { isOnBreak } = req.body;
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  try {
+    const status = isOnBreak ? 1 : 0;
+    const breakStarted = isOnBreak ? Date.now() : 0;
+    await run(
+      'UPDATE station_tokens SET isOnBreak = ?, breakStartedAt = ? WHERE token = ? OR stationId = ?',
+      [status, breakStarted, token, req.stationId]
+    );
+    res.json({ success: true, isOnBreak: status, breakStartedAt: breakStarted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/stations/breaks', async (req, res) => {
+  try {
+    const breaks = await all('SELECT stationId, isOnBreak, breakStartedAt FROM station_tokens WHERE isOnBreak = 1');
+    res.json(breaks);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/translate', async (req, res) => {
+  const { text } = req.query;
+  if (!text) {
+    return res.status(400).json({ error: 'text query parameter is required' });
+  }
+  try {
+    const translated = await translateToHindi(text);
+    res.json({ translated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // 2. Products endpoints
 app.get('/api/products', async (req, res) => {
@@ -138,8 +195,11 @@ app.get('/api/products', async (req, res) => {
 });
 
 app.post('/api/products', async (req, res) => {
-  const { id, name, englishName, targetUph, colorHex, isActive, manualFileName, nominalBatchDurationSec, mixtureRatios } = req.body;
+  let { id, name, englishName, targetUph, colorHex, isActive, manualFileName, nominalBatchDurationSec, mixtureRatios } = req.body;
   try {
+    if (!name || name.trim() === '') {
+      name = await translateToHindi(englishName);
+    }
     const activeInt = isActive ? 1 : 0;
     const ratioStr = JSON.stringify(mixtureRatios || []);
     
@@ -157,6 +217,18 @@ app.post('/api/products', async (req, res) => {
          mixtureRatios=excluded.mixtureRatios`,
       [id, name, englishName, targetUph || 1200, colorHex || '#00875A', activeInt, manualFileName, nominalBatchDurationSec || 480, ratioStr]
     );
+
+    // Auto-create finished product inventory entry if it doesn't exist
+    const finishedProdId = id.replace('PRD-', 'FIN-');
+    const existingInv = await get('SELECT * FROM inventory WHERE itemId = ?', [finishedProdId]);
+    if (!existingInv) {
+      const translatedFinGood = await translateToHindi(englishName);
+      await run(
+        `INSERT INTO inventory (itemId, name, stock, unit, lastUpdated, type, hindiName, minStock) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [finishedProdId, englishName, 0, 'batches', Date.now(), 'finished_good', translatedFinGood, 1.0]
+      );
+    }
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -166,7 +238,7 @@ app.post('/api/products', async (req, res) => {
 // 3. Orders endpoints
 app.get('/api/orders', async (req, res) => {
   try {
-    const orders = await all('SELECT * FROM orders');
+    const orders = await all("SELECT * FROM orders ORDER BY CASE WHEN status = 'ACTIVE' THEN 0 WHEN status = 'PENDING' THEN 1 ELSE 2 END, queueOrder ASC, timestamp ASC");
     res.json(orders);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -178,14 +250,96 @@ app.post('/api/orders', async (req, res) => {
   try {
     const activeOrder = await get("SELECT * FROM orders WHERE status = 'ACTIVE' LIMIT 1");
     const finalStatus = status || (activeOrder ? 'PENDING' : 'ACTIVE');
+    
+    // Find maximum queueOrder in existing orders and add 1
+    const maxQResult = await get("SELECT MAX(queueOrder) as maxQ FROM orders");
+    const nextQ = (maxQResult?.maxQ || 0) + 1;
+
     await run(
-      `INSERT INTO orders (id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled, completedBatches, status, timestamp, colorHex)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO orders (id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled, completedBatches, status, timestamp, colorHex, queueOrder)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          completedBatches=excluded.completedBatches,
          status=excluded.status`,
-      [id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled, completedBatches || 0, finalStatus, Date.now(), colorHex]
+      [id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled, completedBatches || 0, finalStatus, Date.now(), colorHex, nextQ]
     );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/orders/:id/move', async (req, res) => {
+  const { id } = req.params;
+  const { direction } = req.body; // 'up' or 'down'
+  try {
+    // Select all orders that are ACTIVE or PENDING, ordered by queueOrder ASC, timestamp ASC
+    const activeOrders = await all("SELECT * FROM orders WHERE status IN ('ACTIVE', 'PENDING') ORDER BY queueOrder ASC, timestamp ASC");
+    const index = activeOrders.findIndex(o => o.id === id);
+    if (index === -1) {
+      return res.status(400).json({ error: 'Order not found or not active/pending' });
+    }
+
+    if (direction === 'up' && index > 0) {
+      const current = activeOrders[index];
+      const target = activeOrders[index - 1];
+      const tempQ = current.queueOrder;
+      
+      let newCurrentQ = target.queueOrder;
+      let newTargetQ = tempQ;
+      if (newCurrentQ === newTargetQ) {
+        newCurrentQ = target.queueOrder;
+        newTargetQ = target.queueOrder + 1;
+      }
+      
+      await run('UPDATE orders SET queueOrder = ? WHERE id = ?', [newCurrentQ, current.id]);
+      await run('UPDATE orders SET queueOrder = ? WHERE id = ?', [newTargetQ, target.id]);
+    } else if (direction === 'down' && index < activeOrders.length - 1) {
+      const current = activeOrders[index];
+      const target = activeOrders[index + 1];
+      const tempQ = current.queueOrder;
+      
+      let newCurrentQ = target.queueOrder;
+      let newTargetQ = tempQ;
+      if (newCurrentQ === newTargetQ) {
+        newCurrentQ = target.queueOrder;
+        newTargetQ = target.queueOrder - 1;
+      }
+      
+      await run('UPDATE orders SET queueOrder = ? WHERE id = ?', [newCurrentQ, current.id]);
+      await run('UPDATE orders SET queueOrder = ? WHERE id = ?', [newTargetQ, target.id]);
+    }
+
+    // Normalize queueOrder to be sequential (0, 1, 2...) for all active/pending orders
+    const updated = await all("SELECT * FROM orders WHERE status IN ('ACTIVE', 'PENDING') ORDER BY queueOrder ASC, timestamp ASC");
+    for (let i = 0; i < updated.length; i++) {
+      await run('UPDATE orders SET queueOrder = ? WHERE id = ?', [i, updated[i].id]);
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/orders/reorder', async (req, res) => {
+  const { orderIds } = req.body;
+  if (!Array.isArray(orderIds)) {
+    return res.status(400).json({ error: 'orderIds must be an array' });
+  }
+  try {
+    // Safety check: check if any order is ACTIVE (In Progress)
+    const activeOrder = await get("SELECT id FROM orders WHERE status = 'ACTIVE' LIMIT 1");
+    if (activeOrder) {
+      const activeIndex = orderIds.indexOf(activeOrder.id);
+      if (activeIndex !== -1 && activeIndex !== 0) {
+        return res.status(400).json({ error: 'Cannot reorder or move another order before the active processing order.' });
+      }
+    }
+
+    for (let i = 0; i < orderIds.length; i++) {
+      await run('UPDATE orders SET queueOrder = ? WHERE id = ?', [i, orderIds[i]]);
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -209,7 +363,7 @@ app.patch('/api/orders/:id/status', async (req, res) => {
     } else if (status === 'COMPLETED' || status === 'CANCELLED') {
       const activeOrder = await get("SELECT * FROM orders WHERE status = 'ACTIVE' LIMIT 1");
       if (!activeOrder) {
-        const nextPending = await get("SELECT * FROM orders WHERE status = 'PENDING' ORDER BY timestamp ASC LIMIT 1");
+        const nextPending = await get("SELECT * FROM orders WHERE status = 'PENDING' ORDER BY queueOrder ASC, timestamp ASC LIMIT 1");
         if (nextPending) {
           await run("UPDATE orders SET status = 'ACTIVE' WHERE id = ?", [nextPending.id]);
         }
@@ -231,7 +385,7 @@ app.delete('/api/orders/:id', async (req, res) => {
     if (targetOrder && targetOrder.status === 'ACTIVE') {
       const activeOrder = await get("SELECT * FROM orders WHERE status = 'ACTIVE' LIMIT 1");
       if (!activeOrder) {
-        const nextPending = await get("SELECT * FROM orders WHERE status = 'PENDING' ORDER BY timestamp ASC LIMIT 1");
+        const nextPending = await get("SELECT * FROM orders WHERE status = 'PENDING' ORDER BY queueOrder ASC, timestamp ASC LIMIT 1");
         if (nextPending) {
           await run("UPDATE orders SET status = 'ACTIVE' WHERE id = ?", [nextPending.id]);
         }
@@ -257,6 +411,34 @@ app.post('/api/inventory/adjust', async (req, res) => {
   const { itemId, stock } = req.body;
   try {
     await run('UPDATE inventory SET stock = ?, lastUpdated = ? WHERE itemId = ?', [stock, Date.now(), itemId]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/inventory', async (req, res) => {
+  let { itemId, name, hindiName, type, stock, unit, minStock } = req.body;
+  if (!itemId || !name || !type) {
+    return res.status(400).json({ error: 'itemId, name, and type are required' });
+  }
+  try {
+    if (!hindiName || hindiName.trim() === '') {
+      hindiName = await translateToHindi(name);
+    }
+    await run(
+      `INSERT INTO inventory (itemId, name, hindiName, type, stock, unit, minStock, lastUpdated)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(itemId) DO UPDATE SET
+         name=excluded.name,
+         hindiName=excluded.hindiName,
+         type=excluded.type,
+         stock=excluded.stock,
+         unit=excluded.unit,
+         minStock=excluded.minStock,
+         lastUpdated=excluded.lastUpdated`,
+      [itemId.toUpperCase(), name, hindiName, type, stock || 0.0, unit || 'kg', minStock || 0.0, Date.now()]
+    );
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -292,9 +474,9 @@ async function processBatchLogDeductions(log) {
     const batchSizeKg = log.unitsProduced || 600; // default nominal weight is mapped from unitsProduced or 600
     const ratios = JSON.parse(product.mixtureRatios || '[]');
 
-    // Deduct raw ingredients
+    // Deduct raw ingredients (percentage represents direct kgs weight)
     for (const ing of ratios) {
-      const amountDeducted = (ing.percentage / 100) * batchSizeKg;
+      const amountDeducted = ing.percentage;
       await run(
         'UPDATE inventory SET stock = MAX(0, stock - ?), lastUpdated = ? WHERE itemId = ?',
         [amountDeducted, Date.now(), ing.ingredientId]
@@ -327,7 +509,7 @@ async function processBatchLogDeductions(log) {
     );
 
     if (newStatus === 'COMPLETED') {
-      const nextPending = await get("SELECT * FROM orders WHERE status = 'PENDING' ORDER BY timestamp ASC LIMIT 1");
+      const nextPending = await get("SELECT * FROM orders WHERE status = 'PENDING' ORDER BY queueOrder ASC, timestamp ASC LIMIT 1");
       if (nextPending) {
         await run("UPDATE orders SET status = 'ACTIVE' WHERE id = ?", [nextPending.id]);
       }

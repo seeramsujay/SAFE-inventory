@@ -60,8 +60,11 @@ export async function initDb() {
     CREATE TABLE IF NOT EXISTS inventory (
       itemId TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      hindiName TEXT,
+      type TEXT DEFAULT 'raw_material',
       stock REAL DEFAULT 0.0,
       unit TEXT DEFAULT 'kg',
+      minStock REAL DEFAULT 0.0,
       lastUpdated INTEGER
     )
   `);
@@ -76,7 +79,8 @@ export async function initDb() {
       completedBatches INTEGER DEFAULT 0,
       status TEXT DEFAULT 'PENDING',
       timestamp INTEGER,
-      colorHex TEXT
+      colorHex TEXT,
+      queueOrder INTEGER DEFAULT 0
     )
   `);
 
@@ -98,9 +102,31 @@ export async function initDb() {
       token TEXT PRIMARY KEY,
       stationId TEXT NOT NULL,
       issuedAt INTEGER,
-      expiresAt INTEGER
+      expiresAt INTEGER,
+      isOnBreak INTEGER DEFAULT 0,
+      breakStartedAt INTEGER DEFAULT 0
     )
   `);
+
+  // Run database migrations to dynamically add missing columns to existing tables
+  try {
+    await run(`ALTER TABLE inventory ADD COLUMN hindiName TEXT`);
+  } catch (e) {}
+  try {
+    await run(`ALTER TABLE inventory ADD COLUMN type TEXT DEFAULT 'raw_material'`);
+  } catch (e) {}
+  try {
+    await run(`ALTER TABLE inventory ADD COLUMN minStock REAL DEFAULT 0.0`);
+  } catch (e) {}
+  try {
+    await run(`ALTER TABLE orders ADD COLUMN queueOrder INTEGER DEFAULT 0`);
+  } catch (e) {}
+  try {
+    await run(`ALTER TABLE station_tokens ADD COLUMN isOnBreak INTEGER DEFAULT 0`);
+  } catch (e) {}
+  try {
+    await run(`ALTER TABLE station_tokens ADD COLUMN breakStartedAt INTEGER DEFAULT 0`);
+  } catch (e) {}
 
   // Seed baseline data if empty
   const prodCount = await get(`SELECT COUNT(*) as count FROM products`);
@@ -168,20 +194,20 @@ export async function seedData() {
 
   // Seed Inventory
   const initialInventory = [
-    { itemId: "ING-001", name: "Wheat Flour", stock: 12500, unit: "kg" },
-    { itemId: "ING-002", name: "Refined Sugar", stock: 5400, unit: "kg" },
-    { itemId: "ING-003", name: "Vegetable Fats", stock: 3200, unit: "kg" },
-    { itemId: "ING-004", name: "Cream Flavoring", stock: 650, unit: "kg" },
-    { itemId: "ING-005", name: "Premium Additive", stock: 450, unit: "kg" },
-    { itemId: "FIN-001", name: "Cream Special", stock: 4, unit: "batches" },
-    { itemId: "FIN-002", name: "Premium Plus", stock: 2, unit: "batches" },
-    { itemId: "FIN-003", name: "Standard Blend", stock: 0, unit: "batches" }
+    { itemId: "ING-001", name: "Wheat Flour", hindiName: "गेंहू का आटा", type: "raw_material", stock: 12500, unit: "kg", minStock: 2000 },
+    { itemId: "ING-002", name: "Refined Sugar", hindiName: "चीनी", type: "raw_material", stock: 5400, unit: "kg", minStock: 1000 },
+    { itemId: "ING-003", name: "Vegetable Fats", hindiName: "वनस्पति वसा", type: "raw_material", stock: 3200, unit: "kg", minStock: 800 },
+    { itemId: "ING-004", name: "Cream Flavoring", hindiName: "क्रीम फ्लेवर", type: "raw_material", stock: 650, unit: "kg", minStock: 150 },
+    { itemId: "ING-005", name: "Premium Additive", hindiName: "प्रीमियम एडिटिव", type: "raw_material", stock: 450, unit: "kg", minStock: 100 },
+    { itemId: "FIN-001", name: "Cream Special", hindiName: "क्रीम स्पेशल", type: "finished_good", stock: 4, unit: "batches", minStock: 2 },
+    { itemId: "FIN-002", name: "Premium Plus", hindiName: "प्रीमियम प्लस", type: "finished_good", stock: 2, unit: "batches", minStock: 1 },
+    { itemId: "FIN-003", name: "Standard Blend", hindiName: "मानक मिश्रण", type: "finished_good", stock: 0, unit: "batches", minStock: 1 }
   ];
 
   for (const i of initialInventory) {
     await run(
-      `INSERT INTO inventory (itemId, name, stock, unit, lastUpdated) VALUES (?, ?, ?, ?, ?)`,
-      [i.itemId, i.name, i.stock, i.unit, Date.now()]
+      `INSERT INTO inventory (itemId, name, hindiName, type, stock, unit, minStock, lastUpdated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [i.itemId, i.name, i.hindiName, i.type, i.stock, i.unit, i.minStock, Date.now()]
     );
   }
 
@@ -196,7 +222,8 @@ export async function seedData() {
       completedBatches: 4,
       status: "ACTIVE",
       timestamp: Date.now() - 3 * 3600000,
-      colorHex: "#00875A"
+      colorHex: "#00875A",
+      queueOrder: 0
     },
     {
       id: "ORD-1002",
@@ -207,15 +234,16 @@ export async function seedData() {
       completedBatches: 0,
       status: "PENDING",
       timestamp: Date.now() - 1.5 * 3600000,
-      colorHex: "#E65100"
+      colorHex: "#E65100",
+      queueOrder: 1
     }
   ];
 
   for (const o of initialOrders) {
     await run(
-      `INSERT INTO orders (id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled, completedBatches, status, timestamp, colorHex)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [o.id, o.productKey, o.productNameEnglish, o.productNameHindi, o.totalBatchesScheduled, o.completedBatches, o.status, o.timestamp, o.colorHex]
+      `INSERT INTO orders (id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled, completedBatches, status, timestamp, colorHex, queueOrder)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [o.id, o.productKey, o.productNameEnglish, o.productNameHindi, o.totalBatchesScheduled, o.completedBatches, o.status, o.timestamp, o.colorHex, o.queueOrder]
     );
   }
 

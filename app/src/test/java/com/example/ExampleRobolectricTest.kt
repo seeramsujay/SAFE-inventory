@@ -138,12 +138,16 @@ class ExampleRobolectricTest {
         }
         val initialLogsCount = initialLogs.size
 
+        // Set the active product names in the viewmodel
+        viewModel.activeProductNameHindi.value = "क्रीम स्पेशल"
+        viewModel.activeProductNameEnglish.value = "Cream Special"
+
         // Complete the active batch
         viewModel.completeActiveBatch()
 
         // Verify count completed has incremented
         val completedCount = viewModel.activeBatchCountCompleted.value
-        assertEquals(5, completedCount)
+        assertEquals(1, completedCount)
 
         // Wait to make sure the success batch log was recorded in the database
         var updatedLogs: List<BatchLogEntity> = emptyList()

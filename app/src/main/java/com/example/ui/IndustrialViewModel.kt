@@ -14,6 +14,17 @@ import kotlin.random.Random
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 
+data class OrderInfo(
+    val id: String,
+    val productNameHindi: String,
+    val productNameEnglish: String,
+    val totalBatchesScheduled: Int,
+    val completedBatches: Int,
+    val colorHex: String,
+    val status: String,
+    val timestamp: Long = 0L
+)
+
 class IndustrialViewModel(
     application: Application,
     private val repository: IndustrialRepository
@@ -30,6 +41,19 @@ class IndustrialViewModel(
     val isWorkplaceClean = MutableStateFlow(false)
     val isMachineNormal = MutableStateFlow(false)
 
+    // Full day order queue state
+    private val _ordersQueue = MutableStateFlow<List<OrderInfo>>(emptyList())
+    val ordersQueue: StateFlow<List<OrderInfo>> = _ordersQueue.asStateFlow()
+
+    // Break/Lunch status states
+    private val _isOnBreak = MutableStateFlow(false)
+    val isOnBreak: StateFlow<Boolean> = _isOnBreak.asStateFlow()
+
+    private val _breakDurationSec = MutableStateFlow(0)
+    val breakDurationSec: StateFlow<Int> = _breakDurationSec.asStateFlow()
+
+    private var breakJob: Job? = null
+
     // Initialize database pre-population
     init {
         viewModelScope.launch {
@@ -41,6 +65,23 @@ class IndustrialViewModel(
         // Initialize pairing state from preferences
         val savedStation = com.example.data.PreferencesManager.getStationId(application)
         _stationId.value = savedStation
+        
+        // Load persistent break state
+        _isOnBreak.value = com.example.data.PreferencesManager.getIsOnBreak(application)
+        if (_isOnBreak.value) {
+            val startTime = com.example.data.PreferencesManager.getBreakStartTime(application)
+            val elapsed = ((System.currentTimeMillis() - startTime) / 1000).toInt()
+            _breakDurationSec.value = maxOf(0, elapsed)
+            breakJob?.cancel()
+            breakJob = viewModelScope.launch {
+                while (_isOnBreak.value) {
+                    delay(1000)
+                    _breakDurationSec.value += 1
+                }
+            }
+            syncBreakStatusToServer(true)
+        }
+
         if (com.example.data.PreferencesManager.isPaired(application)) {
             workerIdInput.value = savedStation
             pinInput.value = com.example.data.PreferencesManager.getStationToken(application)
@@ -201,6 +242,37 @@ class IndustrialViewModel(
         }
     }
 
+    fun startBreak() {
+        val now = System.currentTimeMillis()
+        _isOnBreak.value = true
+        _breakDurationSec.value = 0
+        com.example.data.PreferencesManager.setIsOnBreak(getApplication(), true)
+        com.example.data.PreferencesManager.setBreakStartTime(getApplication(), now)
+        breakJob?.cancel()
+        breakJob = viewModelScope.launch {
+            while (_isOnBreak.value) {
+                delay(1000)
+                _breakDurationSec.value += 1
+            }
+        }
+        syncBreakStatusToServer(true)
+    }
+
+    fun endBreak() {
+        _isOnBreak.value = false
+        com.example.data.PreferencesManager.setIsOnBreak(getApplication(), false)
+        com.example.data.PreferencesManager.setBreakStartTime(getApplication(), 0L)
+        breakJob?.cancel()
+        syncBreakStatusToServer(false)
+    }
+
+    fun endShift() {
+        viewModelScope.launch {
+            endBreak()
+            logout()
+        }
+    }
+
     // 7. Batch completion action via Swipe-To-Confirm Slider
     fun completeActiveBatch() {
         viewModelScope.launch {
@@ -282,7 +354,7 @@ class IndustrialViewModel(
     val editedProductId = MutableStateFlow("PRD-001")
     val editedProductName = MutableStateFlow("Cream Special")
     val editedProductHindiName = MutableStateFlow("क्रीम स्पेशल")
-    val editedProductTargetUph = MutableStateFlow("1200")
+    val editedProductNominalBatchDurationMin = MutableStateFlow("8.0")
     val editedProductColorToken = MutableStateFlow("#00875A")
     val editedProductStatusIsActive = MutableStateFlow(true)
     val editedProductManualFile = MutableStateFlow("Cream_Special_Ops_v2.pdf")
@@ -291,7 +363,7 @@ class IndustrialViewModel(
         editedProductId.value = product.id
         editedProductName.value = product.englishName
         editedProductHindiName.value = product.name
-        editedProductTargetUph.value = product.targetUph.toString()
+        editedProductNominalBatchDurationMin.value = (product.nominalBatchDurationSec / 60.0).toString()
         editedProductColorToken.value = product.colorHex
         editedProductStatusIsActive.value = product.isActive
         editedProductManualFile.value = product.manualFileName ?: "None"
@@ -299,7 +371,13 @@ class IndustrialViewModel(
 
     fun saveProductChanges() {
         viewModelScope.launch {
-            val uphInt = editedProductTargetUph.value.toIntOrNull() ?: 1200
+            val minutesDouble = editedProductNominalBatchDurationMin.value.toDoubleOrNull() ?: 8.0
+            val durationSec = Math.round(minutesDouble * 60.0).toInt()
+            val uphInt = Math.round(1250.0 * 60.0 / minutesDouble).toInt()
+            
+            val existing = products.value.find { it.id == editedProductId.value }
+            val existingRatios = existing?.mixtureRatios
+
             val pEntity = ProductEntity(
                 id = editedProductId.value,
                 name = editedProductHindiName.value,
@@ -307,7 +385,9 @@ class IndustrialViewModel(
                 targetUph = uphInt,
                 colorHex = editedProductColorToken.value,
                 isActive = editedProductStatusIsActive.value,
-                manualFileName = if (editedProductManualFile.value == "None") null else editedProductManualFile.value
+                manualFileName = if (editedProductManualFile.value == "None") null else editedProductManualFile.value,
+                nominalBatchDurationSec = durationSec,
+                mixtureRatios = existingRatios
             )
             repository.updateProduct(pEntity)
         }
@@ -410,7 +490,8 @@ class IndustrialViewModel(
                                         val colorHex = obj.optString("colorHex", "#00875A")
                                         val isActiveProd = obj.optBoolean("isActive", true)
                                         val manualFile = if (obj.isNull("manualFileName")) null else obj.optString("manualFileName")
-                                        val nominalDuration = obj.optInt("nominalBatchDurationSec", 420)
+                                        val nominalDuration = obj.optInt("nominalBatchDurationSec", 480)
+                                        val mixtureRatiosStr = obj.optJSONArray("mixtureRatios")?.toString() ?: "[]"
                                         val productEntity = com.example.data.ProductEntity(
                                             id = id,
                                             name = name,
@@ -419,7 +500,8 @@ class IndustrialViewModel(
                                             colorHex = colorHex,
                                             isActive = isActiveProd,
                                             manualFileName = if (manualFile == "null" || manualFile.isNullOrEmpty()) null else manualFile,
-                                            nominalBatchDurationSec = nominalDuration
+                                            nominalBatchDurationSec = nominalDuration,
+                                            mixtureRatios = mixtureRatiosStr
                                         )
                                         repository.insertProduct(productEntity)
                                     }
@@ -442,23 +524,39 @@ class IndustrialViewModel(
                                 val bodyStr = response.body?.string()
                                 if (!bodyStr.isNullOrBlank()) {
                                     val jsonArray = org.json.JSONArray(bodyStr)
+                                    val tempOrders = mutableListOf<OrderInfo>()
                                     var foundActive = false
                                     var firstPendingHindi = "--"
                                     var firstPendingEnglish = "--"
                                     for (i in 0 until jsonArray.length()) {
                                         val obj = jsonArray.getJSONObject(i)
                                         val status = obj.optString("status")
+                                        val id = obj.optString("id")
+                                        val productKey = obj.optString("productKey")
+                                        val nameEng = obj.optString("productNameEnglish")
+                                        val nameHin = obj.optString("productNameHindi")
+                                        val scheduled = obj.optInt("totalBatchesScheduled")
+                                        val completed = obj.optInt("completedBatches")
+                                        val color = obj.optString("colorHex", "#00875A")
+                                        val timestamp = obj.optLong("timestamp", 0L)
+
+                                        if (status == "ACTIVE" || isTimestampToday(timestamp)) {
+                                            tempOrders.add(
+                                                OrderInfo(
+                                                    id = id,
+                                                    productNameHindi = nameHin,
+                                                    productNameEnglish = nameEng,
+                                                    totalBatchesScheduled = scheduled,
+                                                    completedBatches = completed,
+                                                    colorHex = color,
+                                                    status = status,
+                                                    timestamp = timestamp
+                                                )
+                                            )
+                                        }
 
                                         if (status == "ACTIVE" && !foundActive) {
                                             foundActive = true
-                                            val id = obj.optString("id")
-                                            val productKey = obj.optString("productKey")
-                                            val nameEng = obj.optString("productNameEnglish")
-                                            val nameHin = obj.optString("productNameHindi")
-                                            val scheduled = obj.optInt("totalBatchesScheduled")
-                                            val completed = obj.optInt("completedBatches")
-                                            val color = obj.optString("colorHex", "#00875A")
-
                                             viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
                                                 activeOrderId.value = id
                                                 activeProductNameEnglish.value = nameEng
@@ -468,7 +566,7 @@ class IndustrialViewModel(
                                                 activeBatchCountCompleted.value = completed
 
                                                 val prod = products.value.find { it.id == productKey || it.englishName == nameEng }
-                                                val nominalDuration = prod?.nominalBatchDurationSec ?: 420
+                                                val nominalDuration = prod?.nominalBatchDurationSec ?: 480
                                                 if (batchId.value != "B-${id}") {
                                                     _timerRemainingSec.value = nominalDuration
                                                     batchId.value = "B-${id}"
@@ -477,12 +575,13 @@ class IndustrialViewModel(
                                         }
 
                                         if (status == "PENDING" && firstPendingHindi == "--") {
-                                            firstPendingHindi = obj.optString("productNameHindi", "--")
-                                            firstPendingEnglish = obj.optString("productNameEnglish", "--")
+                                            firstPendingHindi = nameHin
+                                            firstPendingEnglish = nameEng
                                         }
                                     }
 
                                     viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                                        _ordersQueue.value = tempOrders
                                         nextPendingOrderNameHindi.value = firstPendingHindi
                                         nextPendingOrderNameEnglish.value = firstPendingEnglish
                                     }
@@ -545,6 +644,46 @@ class IndustrialViewModel(
         super.onCleared()
         timerJob?.cancel()
         pollJob?.cancel()
+    }
+
+    private fun isTimestampToday(timeMs: Long): Boolean {
+        val cal1 = java.util.Calendar.getInstance()
+        cal1.timeInMillis = timeMs
+        val cal2 = java.util.Calendar.getInstance()
+        cal2.timeInMillis = System.currentTimeMillis()
+        return cal1.get(java.util.Calendar.YEAR) == cal2.get(java.util.Calendar.YEAR) &&
+                cal1.get(java.util.Calendar.DAY_OF_YEAR) == cal2.get(java.util.Calendar.DAY_OF_YEAR)
+    }
+
+    private fun syncBreakStatusToServer(isOn: Boolean) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val serverUrl = com.example.data.PreferencesManager.getServerUrl(getApplication())
+            val stationToken = com.example.data.PreferencesManager.getStationToken(getApplication())
+            if (serverUrl.isNullOrBlank() || stationToken.isNullOrBlank()) return@launch
+
+            try {
+                val url = "$serverUrl/api/stations/break"
+                val jsonPayload = org.json.JSONObject().apply {
+                    put("isOnBreak", isOn)
+                }
+                val requestBody = jsonPayload.toString()
+                    .toRequestBody("application/json".toMediaTypeOrNull())
+
+                val request = okhttp3.Request.Builder()
+                    .url(url)
+                    .post(requestBody)
+                    .addHeader("Authorization", "Bearer $stationToken")
+                    .build()
+
+                okhttp3.OkHttpClient().newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        android.util.Log.e("NexusBreak", "Sync break failed code: ${response.code}")
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("NexusBreak", "Error syncing break status: ${e.message}")
+            }
+        }
     }
 }
 

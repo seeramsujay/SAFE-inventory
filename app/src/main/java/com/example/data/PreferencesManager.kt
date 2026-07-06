@@ -11,6 +11,9 @@ object PreferencesManager {
     private const val KEY_STATION_TOKEN = "station_token"
     private const val KEY_STATION_ID = "station_id"
 
+    private const val KEY_IS_ON_BREAK = "is_on_break"
+    private const val KEY_BREAK_START_TIME = "break_start_time"
+
     private fun getSharedPrefs(context: Context): SharedPreferences {
         return try {
             val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
@@ -54,5 +57,21 @@ object PreferencesManager {
 
     fun clearPairing(context: Context) {
         getSharedPrefs(context).edit().clear().apply()
+    }
+
+    fun setIsOnBreak(context: Context, isOnBreak: Boolean) {
+        getSharedPrefs(context).edit().putBoolean(KEY_IS_ON_BREAK, isOnBreak).apply()
+    }
+
+    fun getIsOnBreak(context: Context): Boolean {
+        return getSharedPrefs(context).getBoolean(KEY_IS_ON_BREAK, false)
+    }
+
+    fun setBreakStartTime(context: Context, startTime: Long) {
+        getSharedPrefs(context).edit().putLong(KEY_BREAK_START_TIME, startTime).apply()
+    }
+
+    fun getBreakStartTime(context: Context): Long {
+        return getSharedPrefs(context).getLong(KEY_BREAK_START_TIME, 0L)
     }
 }

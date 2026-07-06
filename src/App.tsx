@@ -22,7 +22,9 @@ import {
   ExternalLink,
   Play,
   Layers,
-  UserCheck
+  UserCheck,
+  GripVertical,
+  Lock
 } from 'lucide-react';
 
 // Interfaces mirroring the Android Room schema
@@ -213,15 +215,35 @@ export default function App() {
   const [productionMode, setProductionMode] = useState<'weight' | 'batches'>('weight');
   const [orderTargetUnits, setOrderTargetUnits] = useState<number>(5000);
   const [orderTargetBatches, setOrderTargetBatches] = useState<number>(4);
+  const [orderTargetWeightUnit, setOrderTargetWeightUnit] = useState<'kg' | 'tonnes'>('kg');
+  const [adminQueueFilter, setAdminQueueFilter] = useState<'active' | 'today'>('today');
 
-  const handleUnitsChange = (val: number) => {
-    setOrderTargetUnits(val);
-    setOrderTargetBatches(Math.ceil(val / 1250));
+  const getProductBatchSize = (pId: string) => {
+    const prod = products.find(p => p.id === pId);
+    if (!prod || !prod.ingredients || prod.ingredients.length === 0) {
+      const initProd = INITIAL_PRODUCTS.find(p => p.id === pId);
+      if (initProd) {
+        const sum = (initProd.ingredients || []).reduce((sum, ing) => sum + ing.percentage, 0);
+        if (sum === 100) return 600;
+        return sum > 0 ? sum : 600;
+      }
+      return 600;
+    }
+    const sum = prod.ingredients.reduce((sum, ing) => sum + ing.percentage, 0);
+    if (sum === 100) return 600;
+    return sum > 0 ? sum : 600;
   };
 
-  const handleBatchesChange = (val: number) => {
+  const handleUnitsChange = (val: number, prodId: string = selectedProductId) => {
+    setOrderTargetUnits(val);
+    const batchSize = getProductBatchSize(prodId);
+    setOrderTargetBatches(Math.ceil(val / batchSize));
+  };
+
+  const handleBatchesChange = (val: number, prodId: string = selectedProductId) => {
     setOrderTargetBatches(val);
-    setOrderTargetUnits(val * 1250);
+    const batchSize = getProductBatchSize(prodId);
+    setOrderTargetUnits(val * batchSize);
   };
   const [selectedOrderLine, setSelectedOrderLine] = useState<string>('Line A');
 
@@ -234,10 +256,90 @@ export default function App() {
   const [newProductId, setNewProductId] = useState('');
   const [newProductName, setNewProductName] = useState('');
   const [newProductEnglishName, setNewProductEnglishName] = useState('');
-  const [newProductTargetUph, setNewProductTargetUph] = useState(1000);
+  const [newProductBatchTimeMin, setNewProductBatchTimeMin] = useState(8.0);
+  const [draggedOrderId, setDraggedOrderId] = useState<string | null>(null);
+  const [stationsOnBreak, setStationsOnBreak] = useState<{stationId: string, isOnBreak: number, breakStartedAt: number}[]>([]);
   const [newProductColor, setNewProductColor] = useState('#00F0FF');
   const [newProductManual, setNewProductManual] = useState('');
   const [showAddProductModal, setShowAddProductModal] = useState(false);
+
+  // New material form states
+  const [showAddMaterialModal, setShowAddMaterialModal] = useState(false);
+  const [newMaterialId, setNewMaterialId] = useState('');
+  const [newMaterialName, setNewMaterialName] = useState('');
+  const [newMaterialHindiName, setNewMaterialHindiName] = useState('');
+  const [newMaterialStock, setNewMaterialStock] = useState<number>(0);
+  const [newMaterialUnit, setNewMaterialUnit] = useState('kg');
+  const [newMaterialMinStock, setNewMaterialMinStock] = useState<number>(100);
+  const [isHindiNameManuallyEdited, setIsHindiNameManuallyEdited] = useState(false);
+  const [isMaterialHindiNameManuallyEdited, setIsMaterialHindiNameManuallyEdited] = useState(false);
+
+  // Translation helper call to server
+  const translateText = async (text: string): Promise<string> => {
+    if (!text) return '';
+    try {
+      const res = await customFetch(`/api/translate?text=${encodeURIComponent(text)}`);
+      if (res.ok) {
+        const data = await res.json();
+        return data.translated || '';
+      }
+    } catch (err) {
+      console.error("Failed to translate:", err);
+    }
+    return '';
+  };
+
+  const handleProductEnglishNameBlur = async () => {
+    if (newProductEnglishName && (!newProductName || !isHindiNameManuallyEdited)) {
+      const translated = await translateText(newProductEnglishName);
+      if (translated) setNewProductName(translated);
+    }
+  };
+
+  const handleMaterialNameBlur = async () => {
+    if (newMaterialName && (!newMaterialHindiName || !isMaterialHindiNameManuallyEdited)) {
+      const translated = await translateText(newMaterialName);
+      if (translated) setNewMaterialHindiName(translated);
+    }
+  };
+
+  const handleSaveMaterial = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMaterialId || !newMaterialName) {
+      alert("Material ID and English Name are mandatory.");
+      return;
+    }
+
+    const payload = {
+      itemId: newMaterialId.toUpperCase().startsWith('ING-') ? newMaterialId.toUpperCase() : `ING-${newMaterialId.toUpperCase()}`,
+      name: newMaterialName,
+      hindiName: newMaterialHindiName || undefined,
+      type: 'raw_material',
+      stock: newMaterialStock,
+      unit: newMaterialUnit,
+      minStock: newMaterialMinStock
+    };
+
+    try {
+      const res = await customFetch('/api/inventory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        fetchInventory();
+        setShowAddMaterialModal(false);
+        setNewMaterialId('');
+        setNewMaterialName('');
+        setNewMaterialHindiName('');
+        setNewMaterialStock(0);
+        setNewMaterialUnit('kg');
+        setNewMaterialMinStock(100);
+      }
+    } catch (err) {
+      console.error("Failed to save material:", err);
+    }
+  };
 
   // Worker Panel specific states
   const [activeWorkerOrderId, setActiveWorkerOrderId] = useState<string | null>(null);
@@ -315,18 +417,21 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         if (data) {
-          const mapped = data.map((o: any) => ({
-            id: o.id,
-            recipeId: o.productKey,
-            recipeName: o.productNameEnglish,
-            recipeHindiName: o.productNameHindi,
-            unitsProduced: o.completedBatches * 1250,
-            targetUnits: o.totalBatchesScheduled * 1250,
-            status: o.status === 'ACTIVE' ? 'In Progress' : o.status === 'COMPLETED' ? 'Completed' : o.status === 'FAILED' ? 'Failed' : 'Pending',
-            timestamp: o.timestamp,
-            updatedTimestamp: o.timestamp,
-            line: o.line || undefined
-          }));
+          const mapped = data.map((o: any) => {
+            const batchSize = getProductBatchSize(o.productKey);
+            return {
+              id: o.id,
+              recipeId: o.productKey,
+              recipeName: o.productNameEnglish,
+              recipeHindiName: o.productNameHindi,
+              unitsProduced: o.completedBatches * batchSize,
+              targetUnits: o.totalBatchesScheduled * batchSize,
+              status: o.status === 'ACTIVE' ? 'In Progress' : o.status === 'COMPLETED' ? 'Completed' : o.status === 'FAILED' ? 'Failed' : 'Pending',
+              timestamp: o.timestamp,
+              updatedTimestamp: o.timestamp,
+              line: o.line || undefined
+            };
+          });
           setOrders(mapped);
         }
       }
@@ -335,16 +440,77 @@ export default function App() {
     }
   };
 
+  const handleDragStart = (e: React.DragEvent, orderId: string) => {
+    setDraggedOrderId(orderId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDragEnd = () => {
+    setDraggedOrderId(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetOrderId: string) => {
+    e.preventDefault();
+    if (!draggedOrderId || draggedOrderId === targetOrderId) return;
+
+    const draggedOrder = orders.find(o => o.id === draggedOrderId);
+    const targetOrder = orders.find(o => o.id === targetOrderId);
+    if (!draggedOrder || !targetOrder) return;
+
+    // Safety constraint: do not move or reorder if either is In Progress
+    if (draggedOrder.status === 'In Progress' || targetOrder.status === 'In Progress') {
+      return;
+    }
+
+    // Find active/pending orders
+    const activeOrders = orders.filter(o => o.status === 'Pending' || o.status === 'In Progress');
+    const draggedIdx = activeOrders.findIndex(o => o.id === draggedOrderId);
+    const targetIdx = activeOrders.findIndex(o => o.id === targetOrderId);
+
+    if (draggedIdx !== -1 && targetIdx !== -1) {
+      const reorderedActive = [...activeOrders];
+      const [moved] = reorderedActive.splice(draggedIdx, 1);
+      reorderedActive.splice(targetIdx, 0, moved);
+
+      // Optimistically update frontend state
+      const nonActive = orders.filter(o => o.status !== 'Pending' && o.status !== 'In Progress');
+      setOrders([...reorderedActive, ...nonActive]);
+
+      try {
+        const res = await customFetch('/api/orders/reorder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderIds: reorderedActive.map(o => o.id) })
+        });
+        if (res.ok) {
+          fetchOrders();
+        }
+      } catch (err) {
+        console.error("Failed to reorder active orders:", err);
+      }
+    }
+    setDraggedOrderId(null);
+  };
+
   const fetchInventory = async () => {
     try {
       const res = await customFetch('/api/inventory');
       if (res.ok) {
         const data = await res.json();
         if (data) {
-          const mapped = INITIAL_INVENTORY.map(item => {
-            const dbItem = data.find((d: any) => d.itemId === item.id);
-            return dbItem ? { ...item, stock: dbItem.stock } : item;
-          });
+          const mapped = data.map((d: any) => ({
+            id: d.itemId,
+            name: d.name,
+            hindiName: d.hindiName || d.name,
+            type: d.type || 'raw_material',
+            stock: d.stock || 0.0,
+            unit: d.unit || 'kg',
+            minStock: d.minStock || 0.0
+          }));
           setInventory(mapped);
         }
       }
@@ -381,18 +547,32 @@ export default function App() {
     }
   };
 
+  const fetchStationsOnBreak = async () => {
+    try {
+      const res = await customFetch('/api/stations/breaks');
+      if (res.ok) {
+        const data = await res.json();
+        setStationsOnBreak(data || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch station breaks:", err);
+    }
+  };
+
   useEffect(() => {
     fetchProducts();
     fetchOrders();
     fetchInventory();
     fetchLogs();
     fetchServerInfo();
+    fetchStationsOnBreak();
 
     const interval = setInterval(() => {
       fetchProducts();
       fetchOrders();
       fetchInventory();
       fetchLogs();
+      fetchStationsOnBreak();
     }, 2000);
 
     return () => clearInterval(interval);
@@ -470,7 +650,7 @@ export default function App() {
       productKey: product.id,
       productNameEnglish: product.englishName,
       productNameHindi: product.name,
-      totalBatchesScheduled: productionMode === 'batches' ? orderTargetBatches : Math.ceil(orderTargetUnits / 1250),
+      totalBatchesScheduled: productionMode === 'batches' ? orderTargetBatches : Math.ceil(orderTargetUnits / getProductBatchSize(product.id)),
       completedBatches: 0,
       status: hasActiveOrder ? 'PENDING' : 'ACTIVE',
       colorHex: product.colorHex
@@ -563,8 +743,8 @@ export default function App() {
       .map(([ingredientId, percentage]) => ({ ingredientId, percentage }));
 
     const totalPercentage = Object.values(recipeIngredients).reduce((sum, val) => sum + val, 0);
-    if (totalPercentage !== 100) {
-      alert(`VALIDATION FAILED: Ingredients total ratio must sum to exactly 100%. Current sum: ${totalPercentage}%`);
+    if (totalPercentage !== 100 && totalPercentage !== 600 && totalPercentage !== 1000) {
+      alert(`VALIDATION FAILED: Ingredients total must sum to exactly 100% (or 600 kg for a standard batch, or 1000 kg/1 Ton). Current sum: ${totalPercentage}`);
       return;
     }
 
@@ -572,11 +752,11 @@ export default function App() {
       id: newProductId.toUpperCase(),
       name: newProductName,
       englishName: newProductEnglishName,
-      targetUph: newProductTargetUph,
+      targetUph: Math.round(1250 * 60 / newProductBatchTimeMin),
       colorHex: newProductColor,
       isActive: true,
       manualFileName: newProductManual || undefined,
-      nominalBatchDurationSec: editingProduct?.id === newProductId ? products.find(p => p.id === newProductId)?.nominalBatchDurationSec || 480 : 480,
+      nominalBatchDurationSec: Math.round(newProductBatchTimeMin * 60),
       mixtureRatios: ingredientsArray
     };
 
@@ -592,7 +772,7 @@ export default function App() {
         setNewProductId('');
         setNewProductName('');
         setNewProductEnglishName('');
-        setNewProductTargetUph(1000);
+        setNewProductBatchTimeMin(8.0);
         setNewProductColor('#00F0FF');
         setNewProductManual('');
         setShowAddProductModal(false);
@@ -607,13 +787,14 @@ export default function App() {
     setNewProductId(p.id);
     setNewProductName(p.name);
     setNewProductEnglishName(p.englishName);
-    setNewProductTargetUph(p.targetUph);
+    setNewProductBatchTimeMin(p.nominalBatchDurationSec ? p.nominalBatchDurationSec / 60 : 8.0);
     setNewProductColor(p.colorHex);
     setNewProductManual(p.manualFileName || '');
+    setIsHindiNameManuallyEdited(true);
 
     // Set ingredients ratios from product or empty object
     const ingredientMap: {[key: string]: number} = {};
-    INITIAL_INVENTORY.filter(item => item.type === 'raw_material').forEach(ing => {
+    inventory.filter(item => item.type === 'raw_material').forEach(ing => {
       const match = p.ingredients?.find(ri => ri.ingredientId === ing.id);
       ingredientMap[ing.id] = match ? match.percentage : 0;
     });
@@ -689,11 +870,13 @@ export default function App() {
 
   const handleWorkerUpdateProgress = async (val: number) => {
     if (!activeWorkerOrderId) return;
+    const order = orders.find(o => o.id === activeWorkerOrderId);
+    const batchSize = order ? getProductBatchSize(order.recipeId) : 600;
     try {
       const res = await customFetch(`/api/orders/${activeWorkerOrderId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ completedBatches: Math.round(val / 1250) })
+        body: JSON.stringify({ completedBatches: Math.round(val / batchSize) })
       });
       if (res.ok) {
         fetchOrders();
@@ -709,16 +892,17 @@ export default function App() {
     const order = orders.find(o => o.id === activeWorkerOrderId);
     if (!order) return;
 
-    const batchesCompleted = Math.round(order.unitsProduced / 1250);
+    const batchSize = getProductBatchSize(order.recipeId);
+    const batchesCompleted = Math.round(order.unitsProduced / batchSize);
     const newLog = {
       batchId: `${order.id}-B${batchesCompleted + 1}`,
       productNameHindi: order.recipeHindiName,
       productNameEnglish: order.recipeName,
       line: workerProcessingLine,
-      unitsProduced: 1250,
+      unitsProduced: batchSize,
       status: status,
       timestamp: Date.now(),
-      targetUnits: 1250
+      targetUnits: batchSize
     };
 
     try {
@@ -898,6 +1082,21 @@ export default function App() {
                     </button>
                   </div>
 
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[10px] font-mono text-gray-500 uppercase">Set custom count:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max={activeOrderDetails.targetUnits}
+                      value={workerUnitsProducedInput}
+                      onChange={(e) => {
+                        const val = Math.min(activeOrderDetails.targetUnits, Math.max(0, parseInt(e.target.value) || 0));
+                        handleWorkerUpdateProgress(val);
+                      }}
+                      className="w-28 bg-[#0B0D10] text-[#E2E8F0] border border-gray-800 rounded px-2 py-1 text-xs focus:border-[#FF6B00] outline-none font-mono"
+                    />
+                  </div>
+
                   <div className="flex gap-2">
                     <button 
                       onClick={() => handleWorkerUpdateProgress(0)}
@@ -1033,7 +1232,7 @@ export default function App() {
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">RECIPES HISTORY (TODAY)</h3>
                 
                 <div className="flex flex-col gap-2 font-mono text-xs">
-                  {orders.filter(o => o.status === 'Completed' || o.status === 'Failed').slice(0, 3).map(o => (
+                  {orders.filter(o => (o.status === 'Completed' || o.status === 'Failed') && new Date(o.timestamp).toDateString() === new Date().toDateString()).map(o => (
                     <div key={o.id} className="bg-[#0F1115] border border-gray-850 p-3 rounded flex justify-between items-center">
                       <div>
                         <div className="flex items-center gap-2">
@@ -1190,6 +1389,22 @@ export default function App() {
         {/* TAB 1: LIVE CONTROL TERMINAL */}
         {activeTab === 'dashboard' && (
           <div className="flex flex-col gap-6">
+            {stationsOnBreak.length > 0 && (
+              <div className="bg-[#1E1010] border-2 border-red-500/40 p-4 rounded-xl flex items-center gap-3 animate-pulse shadow-lg">
+                <span className="text-xl">⚠️</span>
+                <div className="flex-1">
+                  <h4 className="text-xs font-bold text-red-400 uppercase tracking-wider font-mono">
+                    OPERATOR LUNCH BREAK ALERT
+                  </h4>
+                  <p className="text-xs text-gray-300 font-mono mt-0.5">
+                    {stationsOnBreak.map(s => {
+                      const timeStr = s.breakStartedAt ? new Date(s.breakStartedAt).toLocaleTimeString() : 'Unknown';
+                      return `${s.stationId} is on break (since ${timeStr})`;
+                    }).join(', ')}
+                  </p>
+                </div>
+              </div>
+            )}
             
             {/* THREE METRICS ROW */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1279,12 +1494,20 @@ export default function App() {
                       <label className="text-gray-400 font-bold uppercase tracking-wider">Select Preset Recipe Formula:</label>
                       <select 
                         value={selectedProductId}
-                        onChange={(e) => setSelectedProductId(e.target.value)}
+                        onChange={(e) => {
+                          const nextId = e.target.value;
+                          setSelectedProductId(nextId);
+                          if (productionMode === 'batches') {
+                            handleBatchesChange(orderTargetBatches, nextId);
+                          } else {
+                            handleUnitsChange(orderTargetUnits, nextId);
+                          }
+                        }}
                         className="bg-[#0B0D10] text-white border-2 border-industrial-border px-3 py-3 rounded-lg w-full font-mono text-sm focus:border-industrial-accent outline-none cursor-pointer"
                       >
                         {products.map(p => (
                           <option key={p.id} value={p.id}>
-                            {p.englishName} ({p.name}) [Target UPH: {p.targetUph}]
+                            {p.englishName} ({p.name}) [Batch Time: {p.nominalBatchDurationSec ? (p.nominalBatchDurationSec / 60).toFixed(1) : '8.0'} min]
                           </option>
                         ))}
                       </select>
@@ -1322,14 +1545,27 @@ export default function App() {
                     {/* Quantity Demand Input (Weight or Batch) */}
                     {productionMode === 'weight' ? (
                       <div className="flex-1 flex flex-col gap-2 text-xs font-mono w-full">
-                        <label className="text-gray-400 font-bold uppercase tracking-wider">Target Units Demand (kg):</label>
+                        <label className="text-gray-400 font-bold uppercase tracking-wider">Target Units Demand ({orderTargetWeightUnit}):</label>
                         <div className="flex gap-2">
                           <input
                             type="number"
-                            value={orderTargetUnits}
-                            onChange={(e) => handleUnitsChange(Math.max(1, parseInt(e.target.value) || 0))}
+                            step={orderTargetWeightUnit === 'tonnes' ? "0.001" : "1"}
+                            value={orderTargetWeightUnit === 'tonnes' ? parseFloat((orderTargetUnits / 1000).toFixed(3)) : orderTargetUnits}
+                            onChange={(e) => {
+                              const rawVal = parseFloat(e.target.value) || 0;
+                              const valInKg = orderTargetWeightUnit === 'tonnes' ? Math.round(rawVal * 1000) : Math.round(rawVal);
+                              handleUnitsChange(valInKg);
+                            }}
                             className="bg-[#0B0D10] text-white border-2 border-industrial-border px-3 py-3 rounded-lg flex-1 font-mono text-sm focus:border-industrial-accent outline-none"
                           />
+                          <select
+                            value={orderTargetWeightUnit}
+                            onChange={(e) => setOrderTargetWeightUnit(e.target.value as 'kg' | 'tonnes')}
+                            className="bg-[#0B0D10] text-white border-2 border-industrial-border px-2 py-3 rounded-lg font-mono text-sm focus:border-industrial-accent outline-none cursor-pointer"
+                          >
+                            <option value="kg">kg</option>
+                            <option value="tonnes">Tonnes</option>
+                          </select>
                           <button
                             type="button"
                             onClick={() => handleUnitsChange(Math.max(1000, orderTargetUnits - 1000))}
@@ -1385,14 +1621,40 @@ export default function App() {
                   </form>
                 </div>
 
-                {/* ACTIVE FLOOR ORDERS QUEUE */}
+                 {/* ACTIVE FLOOR ORDERS QUEUE */}
                 <div className="bg-industrial-card border-2 border-industrial-border rounded-xl shadow-lg overflow-hidden flex flex-col">
-                  <div className="bg-[#0B0D10] border-b-2 border-industrial-border p-4 flex justify-between items-center">
+                  <div className="bg-[#0B0D10] border-b-2 border-industrial-border p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                     <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
                       <Terminal className="h-5 w-5 text-industrial-accent" />
                       ACTIVE FLOOR ASSEMBLY QUEUE
                     </h3>
-                    <span className="text-[10px] font-mono text-gray-500">SYNCED IN REAL-TIME</span>
+                    <div className="flex items-center gap-4">
+                      <div className="flex bg-[#161920] border border-industrial-border p-0.5 rounded-lg text-[10px] font-mono">
+                        <button
+                          type="button"
+                          onClick={() => setAdminQueueFilter('active')}
+                          className={`px-3 py-1.5 rounded transition-all font-bold ${
+                            adminQueueFilter === 'active'
+                              ? 'bg-industrial-accent text-black font-black'
+                              : 'text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          Active / Pending
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAdminQueueFilter('today')}
+                          className={`px-3 py-1.5 rounded transition-all font-bold ${
+                            adminQueueFilter === 'today'
+                              ? 'bg-industrial-accent text-black font-black'
+                              : 'text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          Today's Entire Queue
+                        </button>
+                      </div>
+                      <span className="text-[10px] font-mono text-gray-500 hidden md:inline">SYNCED IN REAL-TIME</span>
+                    </div>
                   </div>
 
                   <div className="p-6">
@@ -1400,6 +1662,7 @@ export default function App() {
                       <table className="w-full text-left font-mono text-xs border-collapse">
                         <thead>
                           <tr className="bg-[#0B0D10] text-[#868A94] uppercase tracking-wider text-[10px] border-b border-industrial-border">
+                            <th className="p-4 w-10"></th>
                             <th className="p-4">ORDER ID</th>
                             <th className="p-4">RECIPE DETAILS</th>
                             <th className="p-4">PROGRESS (PRODUCED/TARGET)</th>
@@ -1409,15 +1672,57 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-850">
-                          {orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').length === 0 ? (
-                            <tr>
-                              <td colSpan={6} className="text-center p-8 text-gray-500 italic">
-                                NO ACTIVE FLOOR ORDERS. DISPATCH A RECIPE ABOVE TO START.
-                              </td>
-                            </tr>
-                          ) : (
-                            orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').map(o => (
-                              <tr key={o.id} className="hover:bg-[#12141C] transition-colors">
+                          {(() => {
+                            const filteredOrders = orders.filter(o => {
+                              if (adminQueueFilter === 'active') {
+                                  return o.status === 'Pending' || o.status === 'In Progress';
+                              } else {
+                                return new Date(o.timestamp).toDateString() === new Date().toDateString();
+                              }
+                            });
+
+                            if (filteredOrders.length === 0) {
+                              return (
+                                <tr>
+                                  <td colSpan={7} className="text-center p-8 text-gray-500 italic">
+                                    {adminQueueFilter === 'active' 
+                                      ? 'NO ACTIVE FLOOR ORDERS. DISPATCH A RECIPE ABOVE TO START.'
+                                      : 'NO ORDERS PLACED TODAY.'}
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            return filteredOrders.map(o => (
+                              <tr
+                                key={o.id}
+                                className={`hover:bg-[#12141C] transition-all border-b border-gray-850/30 ${o.status === 'Pending' ? 'cursor-move' : ''} ${
+                                  draggedOrderId === o.id ? 'opacity-40 bg-[#0B0D10]' : ''
+                                }`}
+                                draggable={o.status === 'Pending'}
+                                onDragStart={(e) => {
+                                  if (o.status !== 'Pending') {
+                                    e.preventDefault();
+                                    return;
+                                  }
+                                  handleDragStart(e, o.id);
+                                }}
+                                onDragOver={handleDragOver}
+                                onDragEnd={handleDragEnd}
+                                onDrop={(e) => {
+                                  if (o.status !== 'Pending') return;
+                                  handleDrop(e, o.id);
+                                }}
+                              >
+                                <td className="p-4 text-center">
+                                  {o.status === 'In Progress' ? (
+                                    <span title="Locked - Processing"><Lock className="w-3.5 h-3.5 text-red-500/60" /></span>
+                                  ) : o.status === 'Pending' ? (
+                                    <GripVertical className="w-4 h-4 text-gray-500 hover:text-industrial-accent cursor-grab active:cursor-grabbing" />
+                                  ) : (
+                                    <span className="text-gray-650 font-mono text-[9px]">-</span>
+                                  )}
+                                </td>
                                 <td className="p-4 font-bold text-white tracking-widest">{o.id}</td>
                                 <td className="p-4">
                                   <div className="text-sm font-semibold text-[#D1D4DC]">{o.recipeName}</div>
@@ -1430,7 +1735,12 @@ export default function App() {
                                   </div>
                                   <div className="w-full bg-gray-900 h-2 rounded overflow-hidden border border-gray-800">
                                     <div 
-                                      className={`h-full transition-all duration-300 ${o.status === 'In Progress' ? 'bg-[#FF6B00]' : 'bg-yellow-500'}`} 
+                                      className={`h-full transition-all duration-300 ${
+                                        o.status === 'In Progress' ? 'bg-[#FF6B00]' : 
+                                        o.status === 'Completed' ? 'bg-industrial-success' :
+                                        o.status === 'Failed' ? 'bg-red-500' :
+                                        'bg-yellow-500'
+                                      }`} 
                                       style={{ width: `${Math.min(100, (o.unitsProduced / o.targetUnits) * 100)}%` }}
                                     ></div>
                                   </div>
@@ -1440,10 +1750,20 @@ export default function App() {
                                   <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[10.5px] font-bold border ${
                                     o.status === 'In Progress' 
                                       ? 'bg-[#FF6B00]/15 text-[#FF6B00] border-[#FF6B00]/20 glow-text-orange' 
+                                      : o.status === 'Completed'
+                                      ? 'bg-industrial-success/15 text-industrial-success border-industrial-success/20'
+                                      : o.status === 'Failed'
+                                      ? 'bg-red-500/15 text-red-500 border-red-500/20'
                                       : 'bg-yellow-500/15 text-yellow-500 border-yellow-500/20'
                                   }`}>
-                                    <span className={`w-1.5 h-1.5 rounded-full ${o.status === 'In Progress' ? 'bg-[#FF6B00] animate-pulse' : 'bg-yellow-500'}`}></span>
-                                    {o.status === 'In Progress' ? 'IN PROGRESS' : 'QUEUED / PENDING'}
+                                    <span className={`w-1.5 h-1.5 rounded-full ${
+                                      o.status === 'In Progress' ? 'bg-[#FF6B00] animate-pulse' : 
+                                      o.status === 'Completed' ? 'bg-industrial-success' : 
+                                      o.status === 'Failed' ? 'bg-red-500' : 'bg-yellow-500'
+                                    }`}></span>
+                                    {o.status === 'In Progress' ? 'IN PROGRESS' : 
+                                     o.status === 'Completed' ? 'COMPLETED' : 
+                                     o.status === 'Failed' ? 'FAILED' : 'QUEUED / PENDING'}
                                   </span>
                                 </td>
                                 <td className="p-4 text-right">
@@ -1459,7 +1779,8 @@ export default function App() {
                                     )}
                                     <button
                                       onClick={async () => {
-                                        if (window.confirm(`CONFIRM: Delete order ${o.id}?`)) {
+                                        const confirmText = o.status === 'Completed' || o.status === 'Failed' ? 'Delete' : 'Cancel';
+                                        if (window.confirm(`CONFIRM: ${confirmText} order ${o.id}?`)) {
                                           try {
                                             const res = await customFetch(`/api/orders/${o.id}`, {
                                               method: 'DELETE'
@@ -1474,13 +1795,13 @@ export default function App() {
                                       }}
                                       className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/40 px-2 py-1 rounded text-[10.5px] font-black font-mono transition-all uppercase"
                                     >
-                                      Cancel
+                                      {o.status === 'Completed' || o.status === 'Failed' ? 'Delete' : 'Cancel'}
                                     </button>
                                   </div>
                                 </td>
                               </tr>
-                            ))
-                          )}
+                            ));
+                          })()}
                         </tbody>
                       </table>
                     </div>
@@ -1489,99 +1810,8 @@ export default function App() {
 
               </div>
 
-              {/* COLUMN 3: WORKER CONNECT QR CODE PORTAL */}
+              {/* COLUMN 3: ADMIN QUICK COMMANDS */}
               <div className="flex flex-col gap-6">
-                
-                <div className="bg-gradient-to-b from-industrial-card to-[#12151D] border-2 border-industrial-border rounded-xl p-6 flex flex-col gap-5 shadow-lg items-center text-center relative overflow-hidden">
-                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-industrial-accent to-blue-500"></div>
-                  
-                  <div className="p-2 border border-industrial-accent/20 bg-industrial-accent/5 rounded-lg mr-auto">
-                    <QrCode className="w-5 h-5 text-industrial-accent" />
-                  </div>
-                  
-                  <div className="text-left w-full flex flex-col gap-3">
-                    <div>
-                      <h3 className="text-base font-black tracking-tight text-white uppercase font-display">
-                        FLOOR WORKER LINKAGE
-                      </h3>
-                      <p className="text-xs text-gray-400 font-mono mt-1 leading-relaxed">
-                        Connect floor tablets instantly. Generate secure pairing QR code credentials for target stations.
-                      </p>
-                    </div>
-
-                    {/* Interactive Input Form */}
-                    <div className="flex flex-col gap-2.5 w-full mt-1 text-left text-xs font-mono">
-                      <div className="flex flex-col gap-1">
-                        <span className="text-gray-500 uppercase text-[9px] tracking-wider">Station Identifier:</span>
-                        <input 
-                          type="text" 
-                          value={pairingStationId} 
-                          onChange={(e) => setPairingStationId(e.target.value)} 
-                          className="bg-[#0B0D10] text-[#00F0FF] border border-gray-800 rounded p-1.5 focus:border-industrial-accent outline-none w-full"
-                          placeholder="e.g. KIOSK-01"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-0.5 bg-[#0B0D10]/50 border border-gray-800/40 rounded p-2 mt-0.5">
-                        <span className="text-gray-500 uppercase text-[9px] tracking-wider">Resolved API Server Target:</span>
-                        <span className="text-emerald-400 text-xs font-semibold">{pairingServerUrl}</span>
-                      </div>
-                      <button 
-                        onClick={handleGeneratePairingQR}
-                        className="bg-industrial-accent hover:bg-industrial-accent/80 text-black font-extrabold uppercase py-1.5 rounded transition text-[10.5px] mt-1"
-                      >
-                        Generate Station Token
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* QR Image Render */}
-                  <div className="bg-[#161920] border-2 border-industrial-border p-4 rounded-xl shadow-inner relative group cursor-pointer hover:border-industrial-accent/40 transition-all duration-300">
-                    <img 
-                      src={qrCodeImageUrl} 
-                      alt="Worker Connection QR Link" 
-                      className="w-48 h-48 rounded-lg border border-gray-800 bg-white"
-                      onError={(e) => {
-                        // Fallback image in case of offline / no external network access
-                        e.currentTarget.style.display = 'none';
-                        const element = document.getElementById('qr-fallback');
-                        if (element) element.style.display = 'flex';
-                      }}
-                    />
-                    {/* Fallback mock QR code */}
-                    <div 
-                      id="qr-fallback" 
-                      className="w-48 h-48 rounded-lg border border-dashed border-industrial-accent/50 bg-[#0F1115] flex-col justify-center items-center gap-2 hidden"
-                    >
-                      <QrCode className="w-12 h-12 text-industrial-accent animate-pulse" />
-                      <span className="text-[10px] text-gray-500 font-mono">STATION MOCK LINK</span>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-2 w-full mt-1">
-                    <button
-                      onClick={handleCopyLink}
-                      className="w-full bg-[#202532] hover:bg-[#282F40] border border-gray-700 hover:border-gray-500 text-white transition py-2.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-2"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                      {copiedLink ? 'UPLINK COPIED' : 'COPY CONNECTION LINK'}
-                    </button>
-
-                    <a
-                      href={workerUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-full bg-industrial-accent hover:bg-cyan-500 text-black transition py-2.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-md shadow-cyan-950/20"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5 text-black" strokeWidth={3} />
-                      Open Worker Portal (New Tab)
-                    </a>
-                  </div>
-
-                  <div className="bg-[#0F1115] p-3 rounded-lg border border-gray-850 text-[10.5px] leading-relaxed text-gray-550 font-mono text-left w-full">
-                    <span className="text-industrial-safety font-black block mb-0.5">💡 MULTI-TAB SIMULATOR:</span>
-                    Open the Worker Portal in another window/tab or scan on a mobile. Thanks to local storage sync, any batch update completed by the worker will instantly trigger updates on this admin screen!
-                  </div>
-                </div>
 
                 {/* QUICK RUN COMMANDS */}
                 <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded-xl flex flex-col gap-4 shadow-lg">
@@ -1636,14 +1866,23 @@ export default function App() {
               <button
                 onClick={() => {
                   setEditingProduct(null);
-                  setNewProductId("");
+                  const ids = products.map(p => {
+                    const match = p.id.match(/^PRD-(\d+)$/i);
+                    return match ? parseInt(match[1], 10) : 0;
+                  });
+                  const maxId = ids.length > 0 ? Math.max(...ids) : 0;
+                  const nextIdVal = maxId + 1;
+                  const nextId = `PRD-${String(nextIdVal).padStart(3, '0')}`;
+                  
+                  setNewProductId(nextId);
                   setNewProductName("");
                   setNewProductEnglishName("");
-                  setNewProductTargetUph(1200);
+                  setNewProductBatchTimeMin(8.0);
                   setNewProductColor("#00F0FF");
                   setNewProductManual("");
+                  setIsHindiNameManuallyEdited(false);
                   const ingredientMap: {[key: string]: number} = {};
-                  INITIAL_INVENTORY.filter(item => item.type === 'raw_material').forEach(ing => {
+                  inventory.filter(item => item.type === 'raw_material').forEach(ing => {
                     ingredientMap[ing.id] = 0;
                   });
                   setRecipeIngredients(ingredientMap);
@@ -1696,8 +1935,10 @@ export default function App() {
 
                         <div className="border-t border-gray-850 pt-3 flex flex-col gap-1.5 text-xs font-mono">
                           <div className="flex justify-between">
-                            <span className="text-gray-500">TARGET UPH OUTFLOW:</span>
-                            <span className="text-white font-bold">{p.targetUph} Units/Hr</span>
+                            <span className="text-gray-500">PER BATCH TIME:</span>
+                            <span className="text-white font-bold">
+                              {p.nominalBatchDurationSec ? (p.nominalBatchDurationSec / 60).toFixed(1) : '8.0'} min
+                            </span>
                           </div>
                           
                           <div className="flex justify-between items-center">
@@ -1868,9 +2109,37 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Input Raw Materials */}
               <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded-xl flex flex-col gap-4 shadow-lg">
-                <h3 className="text-sm font-bold text-white font-mono tracking-widest uppercase text-industrial-accent border-b border-industrial-border pb-2">
-                  🌾 Input Raw Materials (Consumables)
-                </h3>
+                <div className="flex justify-between items-center border-b border-industrial-border pb-2">
+                  <h3 className="text-sm font-bold text-white font-mono tracking-widest uppercase text-industrial-accent">
+                    🌾 Input Raw Materials (Consumables)
+                  </h3>
+                  <button
+                    onClick={() => {
+                      const materialIds = inventory
+                        .filter(item => item.type === 'raw_material')
+                        .map(item => {
+                          const match = item.id.match(/^ING-(\d+)$/i);
+                          return match ? parseInt(match[1], 10) : 0;
+                        });
+                      const maxMatId = materialIds.length > 0 ? Math.max(...materialIds) : 0;
+                      const nextMatIdVal = maxMatId + 1;
+                      const nextMatIdStr = String(nextMatIdVal).padStart(3, '0');
+                      
+                      setNewMaterialId(nextMatIdStr);
+                      setNewMaterialName("");
+                      setNewMaterialHindiName("");
+                      setNewMaterialStock(0);
+                      setNewMaterialUnit("kg");
+                      setNewMaterialMinStock(100);
+                      setIsMaterialHindiNameManuallyEdited(false);
+                      setShowAddMaterialModal(true);
+                    }}
+                    className="bg-industrial-accent text-black hover:bg-cyan-500 font-mono font-bold text-[10px] px-2.5 py-1 rounded flex items-center gap-1 transition"
+                  >
+                    <Plus className="w-3 h-3 text-black" strokeWidth={3} />
+                    ADD MATERIAL
+                  </button>
+                </div>
                 <div className="flex flex-col gap-4">
                   {inventory.filter(item => item.type === 'raw_material').map(item => {
                     const pct = Math.min(100, (item.stock / 20000) * 100);
@@ -1902,20 +2171,56 @@ export default function App() {
                           />
                         </div>
 
-                        {/* Restock action */}
-                        <div className="flex justify-end gap-2 mt-2">
-                          <button
-                            onClick={() => adjustInventoryOnServer(item.id, 1000)}
-                            className="bg-gray-900 hover:bg-gray-800 text-white font-mono text-[10px] px-3 py-1 rounded transition border border-gray-700"
-                          >
-                            +1,000 kg Restock
-                          </button>
-                          <button
-                            onClick={() => adjustInventoryOnServer(item.id, 5000)}
-                            className="bg-gray-900 hover:bg-gray-800 text-white font-mono text-[10px] px-3 py-1 rounded transition border border-gray-700"
-                          >
-                            +5,000 kg Restock
-                          </button>
+                        {/* Adjust stock actions */}
+                        <div className="flex justify-between items-center gap-2 mt-2 pt-2 border-t border-gray-900">
+                          {/* Keyboard entry input */}
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              placeholder="Adjust +/-"
+                              defaultValue=""
+                              id={`adjust-input-${item.id}`}
+                              className="w-24 bg-[#12141C] text-white border border-gray-800 rounded px-2 py-1 text-[11px] font-mono focus:border-industrial-accent outline-none"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  const val = parseFloat((e.currentTarget as HTMLInputElement).value);
+                                  if (!isNaN(val) && val !== 0) {
+                                    adjustInventoryOnServer(item.id, val);
+                                    (e.currentTarget as HTMLInputElement).value = '';
+                                  }
+                                }
+                              }}
+                            />
+                            <button
+                              onClick={() => {
+                                const inputEl = document.getElementById(`adjust-input-${item.id}`) as HTMLInputElement;
+                                const val = parseFloat(inputEl?.value);
+                                if (!isNaN(val) && val !== 0) {
+                                  adjustInventoryOnServer(item.id, val);
+                                  if (inputEl) inputEl.value = '';
+                                }
+                              }}
+                              className="bg-industrial-accent text-black hover:bg-cyan-500 font-mono font-bold text-[10px] px-2 py-1 rounded transition"
+                            >
+                              Go
+                            </button>
+                          </div>
+
+                          {/* Quick tap buttons */}
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => adjustInventoryOnServer(item.id, 1000)}
+                              className="bg-[#1C1F2E] hover:bg-gray-800 text-white font-mono text-[9px] px-2 py-1 rounded transition border border-gray-700"
+                            >
+                              +1k
+                            </button>
+                            <button
+                              onClick={() => adjustInventoryOnServer(item.id, 5000)}
+                              className="bg-[#1C1F2E] hover:bg-gray-800 text-white font-mono text-[9px] px-2 py-1 rounded transition border border-gray-700"
+                            >
+                              +5k
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -1942,27 +2247,63 @@ export default function App() {
                               {item.stock.toFixed(2)} {item.unit}
                             </div>
                             <div className="text-[10px] text-gray-500 font-mono mt-0.5">
-                              (= {(item.stock * 1250).toLocaleString()} units)
+                              (= {(item.stock * getProductBatchSize(item.id.replace('FIN-', 'PRD-'))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} kg)
                             </div>
                           </div>
                         </div>
 
-                        {/* Ship/Dispatch actions */}
-                        <div className="flex justify-end gap-2 mt-2">
-                          <button
-                            disabled={item.stock < 1}
-                            onClick={() => adjustInventoryOnServer(item.id, -1)}
-                            className="bg-gray-900 hover:bg-gray-800 disabled:opacity-40 text-white font-mono text-[10px] px-3 py-1 rounded transition border border-gray-700"
-                          >
-                            Dispatch 1 Batch
-                          </button>
-                          <button
-                            disabled={item.stock < 5}
-                            onClick={() => adjustInventoryOnServer(item.id, -5)}
-                            className="bg-gray-900 hover:bg-gray-800 disabled:opacity-40 text-white font-mono text-[10px] px-3 py-1 rounded transition border border-gray-700"
-                          >
-                            Dispatch 5 Batches
-                          </button>
+                        {/* Adjust stock actions */}
+                        <div className="flex justify-between items-center gap-2 mt-2 pt-2 border-t border-gray-900">
+                          {/* Keyboard entry input */}
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              placeholder="Adjust +/-"
+                              defaultValue=""
+                              id={`adjust-input-${item.id}`}
+                              className="w-24 bg-[#12141C] text-white border border-gray-800 rounded px-2 py-1 text-[11px] font-mono focus:border-industrial-success outline-none"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  const val = parseFloat((e.currentTarget as HTMLInputElement).value);
+                                  if (!isNaN(val) && val !== 0) {
+                                    adjustInventoryOnServer(item.id, val);
+                                    (e.currentTarget as HTMLInputElement).value = '';
+                                  }
+                                }
+                              }}
+                            />
+                            <button
+                              onClick={() => {
+                                const inputEl = document.getElementById(`adjust-input-${item.id}`) as HTMLInputElement;
+                                const val = parseFloat(inputEl?.value);
+                                if (!isNaN(val) && val !== 0) {
+                                  adjustInventoryOnServer(item.id, val);
+                                  if (inputEl) inputEl.value = '';
+                                }
+                              }}
+                              className="bg-industrial-success text-black hover:bg-green-500 font-mono font-bold text-[10px] px-2 py-1 rounded transition"
+                            >
+                              Go
+                            </button>
+                          </div>
+
+                          {/* Quick tap buttons */}
+                          <div className="flex gap-1">
+                            <button
+                              disabled={item.stock < 1}
+                              onClick={() => adjustInventoryOnServer(item.id, -1)}
+                              className="bg-[#1C1F2E] hover:bg-gray-800 disabled:opacity-40 text-white font-mono text-[9px] px-2 py-1 rounded transition border border-gray-700"
+                            >
+                              -1b
+                            </button>
+                            <button
+                              disabled={item.stock < 5}
+                              onClick={() => adjustInventoryOnServer(item.id, -5)}
+                              className="bg-[#1C1F2E] hover:bg-gray-800 disabled:opacity-40 text-white font-mono text-[9px] px-2 py-1 rounded transition border border-gray-700"
+                            >
+                              -5b
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -2175,6 +2516,7 @@ export default function App() {
                   placeholder="e.g. Standard Blend (MANDATORY)"
                   value={newProductEnglishName}
                   onChange={(e) => setNewProductEnglishName(e.target.value)}
+                  onBlur={handleProductEnglishNameBlur}
                   className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 focus:border-industrial-accent outline-none font-mono"
                 />
               </div>
@@ -2183,19 +2525,23 @@ export default function App() {
                 <label className="text-gray-400 uppercase tracking-wide">HINDI LAUNCHER LABEL TRANSLATION:</label>
                 <input
                   type="text"
-                  placeholder="e.g. मानक मिश्रण (MANDATORY)"
+                  placeholder="e.g. मानक मिश्रण (OPTIONAL - AUTO TRANSLATES)"
                   value={newProductName}
-                  onChange={(e) => setNewProductName(e.target.value)}
+                  onChange={(e) => {
+                    setNewProductName(e.target.value);
+                    setIsHindiNameManuallyEdited(true);
+                  }}
                   className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 focus:border-industrial-accent outline-none font-mono"
                 />
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-gray-400 uppercase tracking-wide">TARGET OUTPUT FREQUENCY (UPH):</label>
+                <label className="text-gray-400 uppercase tracking-wide">PER BATCH TIME (MINUTES):</label>
                 <input
                   type="number"
-                  value={newProductTargetUph}
-                  onChange={(e) => setNewProductTargetUph(Math.max(1, parseInt(e.target.value) || 0))}
+                  step="0.1"
+                  value={newProductBatchTimeMin}
+                  onChange={(e) => setNewProductBatchTimeMin(Math.max(0.1, parseFloat(e.target.value) || 0.1))}
                   className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 focus:border-industrial-accent outline-none font-mono"
                 />
               </div>
@@ -2236,29 +2582,30 @@ export default function App() {
                     INGREDIENT MIXTURE RATIOS:
                   </span>
                   <span className={`font-mono text-xs font-bold ${
-                    Object.values(recipeIngredients).reduce((sum, v) => sum + v, 0) === 100
+                    (Object.values(recipeIngredients).reduce((sum, v) => sum + v, 0) === 100 || 
+                     Object.values(recipeIngredients).reduce((sum, v) => sum + v, 0) === 600 || 
+                     Object.values(recipeIngredients).reduce((sum, v) => sum + v, 0) === 1000)
                       ? 'text-industrial-success font-black'
                       : 'text-industrial-safety font-black'
                   }`}>
-                    TOTAL: {Object.values(recipeIngredients).reduce((sum, v) => sum + v, 0)}%
+                    TOTAL: {Object.values(recipeIngredients).reduce((sum, v) => sum + v, 0)} {Object.values(recipeIngredients).reduce((sum, v) => sum + v, 0) > 100 ? 'kg' : '%'}
                   </span>
                 </div>
 
                 <div className="flex flex-col gap-3">
-                  {INITIAL_INVENTORY.filter(item => item.type === 'raw_material').map(ing => {
+                  {inventory.filter(item => item.type === 'raw_material').map(ing => {
                     const currentVal = recipeIngredients[ing.id] || 0;
                     return (
                       <div key={ing.id} className="flex flex-col gap-1">
                         <div className="flex justify-between items-center text-[10px]">
                           <span className="text-white font-bold">{ing.name} ({ing.hindiName})</span>
-                          <span className="text-industrial-accent font-mono font-bold">{currentVal}%</span>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3">
                           <input
                             type="range"
                             min="0"
-                            max="100"
-                            step="5"
+                            max="1000"
+                            step="1"
                             value={currentVal}
                             onChange={(e) => {
                               const val = parseInt(e.target.value) || 0;
@@ -2269,6 +2616,25 @@ export default function App() {
                             }}
                             className="flex-1 h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-industrial-accent"
                           />
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              max="1000"
+                              value={currentVal}
+                              onChange={(e) => {
+                                const val = Math.min(1000, Math.max(0, parseInt(e.target.value) || 0));
+                                setRecipeIngredients(prev => ({
+                                  ...prev,
+                                  [ing.id]: val
+                                }));
+                              }}
+                              className="w-12 bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded px-1.5 py-0.5 text-center focus:border-industrial-accent outline-none font-mono text-[11px]"
+                            />
+                            <span className="text-[10px] text-gray-500 font-mono">
+                              {Object.values(recipeIngredients).reduce((sum, v) => sum + v, 0) > 100 ? 'kg' : '%'}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     );
@@ -2281,6 +2647,107 @@ export default function App() {
                 className="bg-industrial-accent hover:bg-cyan-500 font-bold font-mono text-black py-2.5 rounded transition uppercase tracking-widest text-xs mt-3 shadow-md shadow-industrial-accent/25"
               >
                 {editingProduct ? 'Update Recipe Record' : 'Register Formula Record'}
+              </button>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DIALOG ADD RAW MATERIAL */}
+      {showAddMaterialModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 select-none">
+          <div className="bg-industrial-card border-2 border-industrial-accent rounded-lg max-w-md w-full overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-[#0B0D10] border-b border-industrial-border p-4 flex justify-between items-center bg-gray-950">
+              <h3 className="text-sm font-bold font-mono tracking-widest text-[#00F0FF] uppercase">
+                REGISTER NEW RAW MATERIAL
+              </h3>
+              
+              <button 
+                onClick={() => setShowAddMaterialModal(false)}
+                className="text-gray-400 hover:text-white font-mono text-sm uppercase px-1.5 py-0.5 border border-transparent hover:border-gray-700 transition"
+              >
+                Close
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveMaterial} className="p-6 flex flex-col gap-4 font-mono text-xs text-left animate-in fade-in zoom-in-95 duration-200">
+              
+              <div className="flex flex-col gap-1.5">
+                <label className="text-gray-400 uppercase tracking-wide">MATERIAL ID CODE (e.g. ING-006):</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 006 (ING- prefix auto-appended)"
+                  value={newMaterialId}
+                  onChange={(e) => setNewMaterialId(e.target.value)}
+                  className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 focus:border-industrial-accent outline-none font-mono"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-gray-400 uppercase tracking-wide">ENGLISH TECHNICAL NAME:</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Vanilla Extract"
+                  value={newMaterialName}
+                  onChange={(e) => setNewMaterialName(e.target.value)}
+                  onBlur={handleMaterialNameBlur}
+                  className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 focus:border-industrial-accent outline-none font-mono"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-gray-400 uppercase tracking-wide">HINDI LABEL TRANSLATION:</label>
+                <input
+                  type="text"
+                  placeholder="e.g. वेनिला एक्सट्रैक्ट (OPTIONAL - AUTO TRANSLATES)"
+                  value={newMaterialHindiName}
+                  onChange={(e) => {
+                    setNewMaterialHindiName(e.target.value);
+                    setIsMaterialHindiNameManuallyEdited(true);
+                  }}
+                  className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 focus:border-industrial-accent outline-none font-mono"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-gray-400 uppercase tracking-wide">INITIAL STOCK QUANTITY:</label>
+                <input
+                  type="number"
+                  value={newMaterialStock}
+                  onChange={(e) => setNewMaterialStock(parseFloat(e.target.value) || 0)}
+                  className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 focus:border-industrial-accent outline-none font-mono"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-gray-400 uppercase tracking-wide">STOCK METRIC UNIT:</label>
+                <select
+                  value={newMaterialUnit}
+                  onChange={(e) => setNewMaterialUnit(e.target.value)}
+                  className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 focus:border-industrial-accent outline-none font-mono cursor-pointer"
+                >
+                  <option value="kg">kg</option>
+                  <option value="tonnes">tonnes</option>
+                  <option value="batches">batches</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-gray-400 uppercase tracking-wide">MINIMUM STOCK WARNING ALERT THRESHOLD:</label>
+                <input
+                  type="number"
+                  value={newMaterialMinStock}
+                  onChange={(e) => setNewMaterialMinStock(parseFloat(e.target.value) || 0)}
+                  className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 focus:border-industrial-accent outline-none font-mono"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="bg-industrial-accent hover:bg-cyan-500 font-bold font-mono text-black py-2.5 rounded transition uppercase tracking-widest text-xs mt-3 shadow-md shadow-industrial-accent/25"
+              >
+                Register Raw Material
               </button>
 
             </form>
