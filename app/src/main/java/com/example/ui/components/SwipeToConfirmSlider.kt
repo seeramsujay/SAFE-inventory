@@ -43,13 +43,16 @@ fun SwipeToConfirmSlider(
         (width - handleWidth).coerceAtLeast(0).toFloat()
     }
 
+    var dragOffsetRaw by remember { mutableStateOf(0f) }
     val dragOffset = remember { Animatable(0f) }
 
-    LaunchedEffect(isConfirmed) {
+    LaunchedEffect(isConfirmed, maxOffset) {
         if (!isConfirmed) {
             dragOffset.snapTo(0f)
-        } else if (width > 0 && handleWidth > 0) {
+            dragOffsetRaw = 0f
+        } else if (maxOffset > 0f) {
             dragOffset.snapTo(maxOffset)
+            dragOffsetRaw = maxOffset
         }
     }
 
@@ -110,15 +113,12 @@ fun SwipeToConfirmSlider(
         // Draggable Swipe Handle
         if (!isConfirmed) {
             val draggableState = rememberDraggableState { delta ->
-                coroutineScope.launch {
-                    val newValue = (dragOffset.value + delta).coerceIn(0f, maxOffset)
-                    dragOffset.snapTo(newValue)
-                }
+                dragOffsetRaw = (dragOffsetRaw + delta).coerceIn(0f, maxOffset)
             }
 
             Box(
                 modifier = Modifier
-                    .offset { IntOffset(dragOffset.value.roundToInt(), 0) }
+                    .offset { IntOffset(dragOffsetRaw.roundToInt(), 0) }
                     .onSizeChanged { handleWidth = it.width }
                     .fillMaxHeight()
                     .width(100.dp)
@@ -129,12 +129,16 @@ fun SwipeToConfirmSlider(
                         orientation = Orientation.Horizontal,
                         onDragStopped = { velocity ->
                             coroutineScope.launch {
-                                // If dragged 90% or more, confirm and snap to end. Else snap back instantly.
-                                if (dragOffset.value >= maxOffset * 0.9f) {
-                                    dragOffset.animateTo(maxOffset, spring(dampingRatio = 0.85f))
+                                dragOffset.snapTo(dragOffsetRaw)
+                                if (dragOffsetRaw >= maxOffset * 0.9f) {
+                                    dragOffset.animateTo(maxOffset, spring(dampingRatio = 0.85f)) {
+                                        dragOffsetRaw = this.value
+                                    }
                                     onConfirm()
                                 } else {
-                                    dragOffset.animateTo(0f, spring(dampingRatio = 0.75f))
+                                    dragOffset.animateTo(0f, spring(dampingRatio = 0.75f)) {
+                                        dragOffsetRaw = this.value
+                                    }
                                 }
                             }
                         }

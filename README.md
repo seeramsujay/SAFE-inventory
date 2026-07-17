@@ -1,104 +1,742 @@
-# Industrial Nexus — Cloud Sync & Factory Inventory Controller
+# Industrial Nexus — Cyber-Physical Manufacturing Suite
 
-Industrial Nexus is a next-generation cyber-physical manufacturing suite that bridges shop-floor operations with administrative control. The system comprises a **native Android tablet app** (Kotlin, Jetpack Compose) for factory operators and a **React-based cloud companion dashboard** (Vite, TypeScript, TailwindCSS) for administrators.
+Industrial Nexus is a **self-hosted, local-first cyber-physical manufacturing system** that bridges factory floor operations with administrative control. It consists of three integrated subsystems:
 
----
+1. **Native Android Tablet App** (Kotlin, Jetpack Compose, Room) — used by floor operators to manage production batches, scan QR pairing codes, view extruder diagnostics, report emergencies, and track shift progress. Designed for rugged 10-inch widescreen tablets with a high-contrast industrial UI and Hindi language support.
 
-## 🚀 Key Features
+2. **Admin Web Dashboard** (React, TypeScript, Vite, TailwindCSS) — a centralized control room interface for administrators to manage product recipes, monitor batch progress, track inventory, dispatch orders, generate station pairing QR codes, and view production analytics.
 
-### 1. Native Android Tablet Application (Shop-Floor)
-* **Interactive Station Views**: High-contrast, industrial-grade Compose UI optimized for tablet viewport ratios.
-* **Worker Queue Controls**: Simple, login-free operation using long-lived onboarding tokens with physical QR-code pairing.
-* **Swipe-to-Confirm Slider**: Operational safety guardrails preventing accidental batch completion triggers.
-* **Real-time Batch Sync**: Integrated OkHttp client signaling completion logs directly to the admin middleware.
-
-### 2. Admin Web Companion Dashboard (Control Room)
-* **Factory Floor Overview**: Real-time batch progression tracking, uptime statistics, and line-specific analytics.
-* **Mixture Formulas Catalog**: Manage mixture formulas translated dynamically to the Android database.
-* **Interactive Ingredient Sliders**: Granular ingredient ratio adjustment with real-time percentage summation and validation.
-* **Real-time Inventory Tracking**: Automated consumption tracking of raw material inputs and output stocks based on batch logging.
-* **Persistent Dev Middleware**: Custom Vite dev server intercepting endpoints for automatic state preservation in `api_logs.json`.
+3. **Express + SQLite API Backend** — a self-hosted server handling authentication (station token-based), order management, inventory deduction, batch logging, queue promotion, and real-time synchronization between the dashboard and tablet app.
 
 ---
 
-## 📂 Repository Structure
+## Architecture
 
 ```
-├── app/                      # Native Kotlin Android tablet application
-│   ├── src/main/java/        # Jetpack Compose UI screens & ViewModel logic
-│   └── build.gradle.kts      # Kotlin/Android compilation config
-├── src/                      # Admin Companion Web Dashboard
-│   ├── App.tsx               # Main dashboard controller interface
-│   ├── index.css             # Industrial styling theme configurations
-│   └── main.tsx              # React mounting root
-├── vite.config.ts            # Vite config with integrated dev server API middleware
-├── package.json              # Web app dependencies & build scripts
-└── settings.gradle.kts       # Gradle project settings
+┌──────────────────────────────────────────────────────────────────┐
+│                    HOST COMPUTER (SERVER)                         │
+│                                                                  │
+│  ┌──────────────────────┐      ┌──────────────────────────────┐  │
+│  │  Express API Server  │◄────►│  SQLite Database (nexus.db)  │  │
+│  │  (Port 3001)         │      │  - products                  │  │
+│  │  - Auth endpoints    │      │  - inventory                 │  │
+│  │  - Products CRUD     │      │  - orders                    │  │
+│  │  - Orders management │      │  - batch_logs                │  │
+│  │  - Inventory control │      │  - station_tokens            │  │
+│  │  - Batch logging     │      └──────────────────────────────┘  │
+│  │  - Translation API   │                                          │
+│  └─────────┬────────────┘                                          │
+│            │ proxy /api                                             │
+│  ┌─────────▼────────────┐                                          │
+│  │  Vite Dev Server     │  (dev) or static dist/ (prod)            │
+│  │  React Admin Dashboard│                                          │
+│  │  (Port 3005 / 3001)  │                                          │
+│  └──────────────────────┘                                          │
+└──────────────────────────────────────────────────────────────────┘
+           │                           ▲
+           │ JSON API                  │ JSON API
+           ▼                           │
+┌──────────────────────────────────────────────────────────────────┐
+│              FACTORY FLOOR (LAN / Tailscale)                       │
+│                                                                   │
+│  ┌───────────────────────────────────────────────────────────┐   │
+│  │  Android Kiosk Tablet App                                  │   │
+│  │  - Kotlin / Jetpack Compose / Room SQLite                  │   │
+│  │  - Offline-first: writes to local Room DB first            │   │
+│  │  - Background SyncWorker pushes pending logs               │   │
+│  │  - 4 screens: Login, Timer, Extruder, Emergency            │   │
+│  │  - QR code pairing with server                              │   │
+│  └───────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Architecture Principles
+
+- **Local-First**: The system is fully self-hosted. The Android app writes to a local Room SQLite database first, then syncs to the Express server via WorkManager when the network is available.
+- **Single Source of Truth**: The Express server's `nexus.db` is the authoritative data store. The Android app caches a subset locally for offline resilience.
+- **Station Token Authentication**: Long-lived tokens (100 years) are generated by the admin dashboard, embedded in QR codes, and scanned by the Android app for secure pairing.
+- **Atomic Queue Promotion**: When an active order is completed or cancelled, the next pending order is automatically promoted to active in a single database transaction.
+- **Batch Deduplication**: The server checks `batchId` uniqueness before inserting logs, preventing double-counting from retries.
+- **Self-Hosted**: No external cloud dependencies. The entire system runs on a single host machine accessible over LAN or Tailscale VPN.
+
+---
+
+## Tech Stack
+
+### Android App (`app/`)
+| Component | Technology |
+|-----------|-----------|
+| Language | Kotlin 2.2.10 |
+| UI | Jetpack Compose + Material 3 |
+| Database | Room SQLite (local cache) |
+| HTTP Client | OkHttp 4 |
+| Camera | CameraX 1.5 |
+| QR Scanner | MLKit Barcode Scanning 17.3 |
+| Background Sync | WorkManager 2.9 |
+| Secure Storage | Security-Crypto (Encrypted SharedPreferences) |
+| Screenshot Testing | Roborazzi 1.59 + Robolectric 4.16 |
+
+### Web Dashboard (`src/`)
+| Component | Technology |
+|-----------|-----------|
+| Language | TypeScript 5.2 |
+| UI Framework | React 18.3 |
+| Build Tool | Vite 5.3 |
+| Styling | TailwindCSS 3.4 |
+| Charts | Recharts 2.12 |
+| Icons | Lucide React 0.395 |
+
+### Backend (`server/`)
+| Component | Technology |
+|-----------|-----------|
+| Runtime | Node.js (ESM) |
+| Framework | Express 5.2 |
+| Database | SQLite 3 (via `sqlite3` package) |
+| Auth | JSON Web Tokens |
+| Package Manager | pnpm (workspace mode) |
+
+### Infrastructure
+- **pnpm** Workspace — manages monorepo dependencies
+- **Gradle 9.x** — Android build system
+- **Capacitor 8.x** — Alternative mobile build target
+- **GitHub Actions** — CI (builds both native and Capacitor APKs)
+- **Tailscale** — Recommended VPN for secure LAN pairing
+- **localtunnel / ngrok** — Optional public tunnel for remote access
+
+---
+
+## Directory Structure
+
+```
+SAFE-inventory/
+├── app/                                    # Native Android app module
+│   ├── build.gradle.kts                    # Android build config
+│   ├── src/main/java/com/example/
+│   │   ├── MainActivity.kt                 # Entry point, navigation, crash handler
+│   │   ├── data/
+│   │   │   ├── AppDatabase.kt              # Room database (v3, 4 entities)
+│   │   │   ├── Dao.kt                      # 4 DAOs (Product, BatchLog, ActiveShift, Outbox)
+│   │   │   ├── Entities.kt                 # Room entities
+│   │   │   ├── IndustrialRepository.kt      # Repository wrapping all DAOs
+│   │   │   ├── NetworkUtils.kt             # OkHttp client configuration
+│   │   │   ├── PreferencesManager.kt       # Encrypted SharedPreferences
+│   │   │   └── SyncWorker.kt               # WorkManager offline sync
+│   │   └── ui/
+│   │       ├── IndustrialViewModel.kt      # Central ViewModel
+│   │       ├── components/
+│   │       │   └── SwipeToConfirmSlider.kt  # Drag-to-confirm safety slider
+│   │       ├── screens/
+│   │       │   ├── LoginScreen.kt           # QR pairing + safety checklist
+│   │       │   ├── QRScannerView.kt         # CameraX + MLKit barcode scanner
+│   │       │   ├── WorkerTimerScreen.kt     # Timer + batch completion
+│   │       │   ├── WorkerExtruderScreen.kt  # Extruder diagnostics
+│   │       │   └── EmergencyScreen.kt       # Emergency downtime reporting
+│   │       └── theme/
+│   │           ├── Color.kt                 # Industrial color palette
+│   │           ├── Theme.kt                 # Material 3 light theme
+│   │           └── Type.kt                  # Typography definitions
+│   └── src/main/res/                        # Android resources, launcher icons
+│
+├── src/                                    # React admin dashboard
+│   ├── App.tsx                             # Main dashboard (5 tabs, state, API calls)
+│   ├── ErrorBoundary.tsx                   # Error boundary (Hindi/English)
+│   ├── index.css                           # Tailwind directives
+│   └── main.tsx                            # React entry point
+│
+├── server/
+│   ├── index.js                            # Express API server (all endpoints)
+│   └── db.js                               # SQLite initialization, queries, seeding
+│
+├── scripts/
+│   ├── worker_emulator.js                  # CLI floor terminal emulator
+│   └── setup-db.js                         # Supabase PostgreSQL setup (legacy)
+│
+├── docs/
+│   ├── architecture_and_connectivity.md    # Architecture + connectivity docs
+│   ├── industrial_workflow_spec.md         # Formal workflow specification
+│   ├── sqlite_database_setup.md            # Database schema documentation
+│   ├── walkthrough.md                      # Feature walkthrough
+│   ├── takeover_guide.md                   # Developer machine setup guide
+│   └── antigravity_onboarding.md           # Antigravity platform onboarding
+│
+├── dist/                                   # Built web dashboard (Vite output)
+├── android/                                # Capacitor Android project
+├── gradle/                                 # Gradle version catalog & wrapper
+├── build.gradle.kts                        # Root Gradle configuration
+├── settings.gradle.kts                     # Gradle settings
+├── gradle.properties                       # JVM args, caching, parallel build
+├── package.json                            # Web dependencies + scripts
+├── pnpm-lock.yaml                          # pnpm lock file
+├── pnpm-workspace.yaml                     # pnpm workspace configuration
+├── tailwind.config.js                      # Industrial theme colors
+├── vite.config.ts                          # Vite config (port 3005, proxy /api)
+├── capacitor.config.ts                     # Capacitor configuration
+├── tsconfig.json                           # TypeScript configuration
+└── postcss.config.js                       # PostCSS (Tailwind + autoprefixer)
 ```
 
 ---
 
-## 🛠️ Getting Started & Production Setup
+## Quick Start
 
 ### Prerequisites
-* **Java Development Kit (JDK)**: Version 17 or higher
-* **Node.js**: Version 18+ (with `npm`)
-* **Android SDK / Studio** (for compiling the tablet application)
+- **JDK 17+** (21 recommended) — for Android builds
+- **Node.js 18+** and **pnpm** (`npm install -g pnpm`)
+- **Android SDK** (Android Studio recommended) — for APK builds
 
-### Running the System
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-2. Start the Express backend and Vite dashboard concurrently:
-   ```bash
-   npm run dev
-   ```
-   *The Express server boots on `http://localhost:3001/` and Vite dashboard boots on `http://localhost:3000/`.*
+### Running the Full System
 
-3. To build the production assets and run only the Express backend:
-   ```bash
-   npm run build
-   npm run server
-   ```
+```bash
+# 1. Install web dependencies
+pnpm install
 
-### Compiling the Native Android Application
-1. To clean and build the debug APK directly from the command line:
-   ```bash
-   ./gradlew clean assembleDebug
-   ```
-2. The generated APK will be available at:
-   ```
-   app/build/outputs/apk/debug/app-debug.apk
-   ```
+# 2. Start the Express server + Vite dashboard concurrently
+pnpm dev
+```
+
+This starts:
+- **Express API Server** on `http://localhost:3001`
+- **Vite Dev Server** on `http://localhost:3005` (proxies `/api` to `:3001`)
+
+The SQLite database (`nexus.db`) is auto-created and seeded with sample data on first run.
+
+### Production Build
+
+```bash
+pnpm build        # Compile TypeScript + Vite build → dist/
+pnpm server       # Serve compiled assets + API on port 3001
+```
+
+### Building the Android APK
+
+```bash
+./gradlew clean assembleDebug
+# Output: app/build/outputs/apk/debug/app-debug.apk
+
+# Release build (requires signing env vars)
+./gradlew :app:assembleRelease
+```
+
+### Running Tests
+
+```bash
+# Android unit tests (Robolectric)
+./gradlew :app:testDebugUnitTest
+
+# Android instrumentation tests (requires emulator/device)
+./gradlew :app:connectedDebugAndroidTest
+```
+
+### CLI Floor Terminal Emulator
+
+```bash
+pnpm emulator
+```
+
+A command-line tool that mimics the Android tablet app. Press `C` to complete a batch, `Q` to quit. Useful for testing the full batch lifecycle without Android Studio or a physical device.
+
+---
+
+## Database Schema
+
+The system uses a single SQLite database (`nexus.db`) with 5 tables:
+
+### `products`
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | TEXT PK | Product ID (e.g. `PRD-001`) |
+| `name` | TEXT | Hindi name |
+| `englishName` | TEXT | English name |
+| `targetUph` | INTEGER | Target units per hour |
+| `colorHex` | TEXT | UI color code |
+| `isActive` | INTEGER | 1 = active, 0 = inactive |
+| `manualFileName` | TEXT | PDF manual filename |
+| `nominalBatchDurationSec` | INTEGER | Standard batch time in seconds |
+| `mixtureRatios` | TEXT | JSON array of `{ingredientId, percentage}` |
+
+### `inventory`
+| Column | Type | Description |
+|--------|------|-------------|
+| `itemId` | TEXT PK | Item ID (e.g. `ING-001`) |
+| `name` | TEXT | English name |
+| `hindiName` | TEXT | Hindi name |
+| `type` | TEXT | `raw_material` or `finished_good` |
+| `stock` | REAL | Current stock quantity |
+| `unit` | TEXT | Unit of measurement (kg, batches) |
+| `minStock` | REAL | Minimum stock threshold |
+| `lastUpdated` | INTEGER | Epoch timestamp |
+
+### `orders`
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | TEXT PK | Order ID (e.g. `ORD-1001`) |
+| `productKey` | TEXT | FK to `products.id` |
+| `productNameEnglish` | TEXT | English product name |
+| `productNameHindi` | TEXT | Hindi product name |
+| `totalBatchesScheduled` | INTEGER | Total batches planned |
+| `completedBatches` | INTEGER | Batches completed so far |
+| `status` | TEXT | `PENDING`, `ACTIVE`, `COMPLETED`, `CANCELLED` |
+| `timestamp` | INTEGER | Creation timestamp |
+| `colorHex` | TEXT | Product color code |
+| `queueOrder` | INTEGER | Position in queue (0, 1, 2...) |
+
+### `batch_logs`
+| Column | Type | Description |
+|--------|------|-------------|
+| `batchId` | TEXT PK | Unique batch identifier |
+| `productNameHindi` | TEXT | Hindi product name |
+| `productNameEnglish` | TEXT | English product name |
+| `line` | TEXT | Production line (Line A/B/C) |
+| `unitsProduced` | INTEGER | Units produced in this batch |
+| `status` | TEXT | `Success` or `Failed` |
+| `timestamp` | INTEGER | Epoch timestamp |
+| `targetUnits` | INTEGER | Target units for this batch |
+
+### `station_tokens`
+| Column | Type | Description |
+|--------|------|-------------|
+| `token` | TEXT PK | Authentication token |
+| `stationId` | TEXT | Station identifier |
+| `issuedAt` | INTEGER | Issue timestamp |
+| `expiresAt` | INTEGER | Expiry timestamp (100 years) |
+| `isOnBreak` | INTEGER | 1 if station on break |
+| `breakStartedAt` | INTEGER | Break start timestamp |
+
+### Seed Data
+
+On first initialization, the database is populated with:
+- **2 products**: Cream Special (PRD-001) and Premium Plus (PRD-002), each with mixture ratios referencing 5 raw ingredients
+- **8 inventory items**: 5 raw materials (wheat flour, sugar, fats, flavoring, additive) and 3 finished goods
+- **2 orders**: One ACTIVE (ORD-1001, 14 batches, 4 completed) and one PENDING (ORD-1002, 8 batches)
+- **4 batch logs**: Seed completion logs for the active order
+- **1 station token**: `DASHBOARD-DEV-TOKEN` for the web dashboard
 
 ---
 
-## 🔌 API & Security Architecture
-The system runs a standalone, SQLite-backed Express backend server at `server/index.js` on port `3001` that handles auth, product specifications, inventory tracking, order status, and batch logs:
-* `POST /api/auth/token` - Generates a new station pairing token.
-* `GET /api/auth/validate` - Validates the station token.
-* `GET /api/products` - Returns product specifications.
-* `GET /api/orders` - Fetches active orders for the factory floor.
-* `POST /api/logs` - Posts a new batch log (requires station token auth).
-* `POST /api/logs/bulk` - Receives offline batch uploads (requires station token auth).
+## API Reference
+
+All API endpoints are served from `http://<host>:3001/api/`.
+
+### Authentication
+
+The system uses two authentication layers:
+
+1. **Basic Auth** for web dashboard access (serving static files):
+   - Default credentials: `admin` / `nexus123`
+   - Configurable via `DASHBOARD_USER` and `DASHBOARD_PASSWORD` environment variables
+
+2. **Bearer Token Auth** for Android tablet API calls:
+   - Tokens are generated via `POST /api/auth/token` and stored in `station_tokens` table
+   - Tokens are valid for 100 years
+   - A master API key (`sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O`) is also accepted for development
+
+### Endpoints
+
+#### Auth
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/auth/token` | None | Generate a new station pairing token. Body: `{ stationId: string }` |
+| `GET` | `/api/auth/validate` | Bearer | Validate a station token. Returns `{ valid: boolean, stationId?: string }` |
+| `POST` | `/api/stations/break` | Bearer | Set station break status. Body: `{ isOnBreak: boolean }` |
+| `GET` | `/api/stations/breaks` | None | Get all stations currently on break |
+
+#### Products
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/products` | None | List all products with parsed mixture ratios |
+| `POST` | `/api/products` | None | Create or update a product. Upserts by `id`. Auto-creates finished good inventory entry. |
+
+**Product POST body**:
+```json
+{
+  "id": "PRD-003",
+  "name": "हिंदी नाम",
+  "englishName": "English Name",
+  "targetUph": 1200,
+  "colorHex": "#00875A",
+  "isActive": true,
+  "manualFileName": "manual.pdf",
+  "nominalBatchDurationSec": 480,
+  "mixtureRatios": [
+    { "ingredientId": "ING-001", "percentage": 40 },
+    { "ingredientId": "ING-002", "percentage": 60 }
+  ]
+}
+```
+
+#### Orders
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/orders` | None | List orders sorted by status (ACTIVE first), then queueOrder, then timestamp |
+| `POST` | `/api/orders` | None | Create an order. If no ACTIVE order exists, the new order becomes ACTIVE |
+| `PATCH` | `/api/orders/:id/status` | None | Update order status and/or completedBatches. Triggers auto-queue-promotion |
+| `DELETE` | `/api/orders/:id` | None | Delete an order. Triggers auto-queue-promotion if deleted order was ACTIVE |
+| `POST` | `/api/orders/reorder` | None | Reorder the active/pending queue. Body: `{ orderIds: string[] }` |
+| `POST` | `/api/orders/:id/move` | None | Move an order up/down in queue. Body: `{ direction: 'up' | 'down' }` |
+
+**Queue Promotion Logic**: When an ACTIVE order is completed or cancelled, the server automatically finds the next PENDING order (by queueOrder ASC) and promotes it to ACTIVE.
+
+**Reorder Constraints**: The ACTIVE order must remain at position 0. If another order is moved before the ACTIVE order, the server rejects the reorder.
+
+#### Inventory
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/inventory` | None | List all inventory items |
+| `POST` | `/api/inventory` | None | Create or update an inventory item. Auto-translates name to Hindi if not provided |
+| `POST` | `/api/inventory/adjust` | None | Set stock level for an item. Body: `{ itemId, stock }` |
+
+#### Batch Logs
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/logs` | None | List all batch logs (newest first) |
+| `POST` | `/api/logs` | Bearer | Submit a single batch log. Triggers inventory deduction and order progress |
+| `POST` | `/api/logs/bulk` | Bearer | Submit multiple batch logs at once (for offline sync catch-up) |
+
+**Batch Log Processing** (`processBatchLogDeductions`):
+1. Checks `batchId` uniqueness — skips if already exists (deduplication)
+2. Inserts the log into `batch_logs`
+3. If status is `Success`:
+   - Looks up the product's mixture ratios
+   - Deducts each ingredient's percentage from inventory (Vector A deduction)
+   - Increments the matching finished good inventory by 1 batch
+4. Updates the ACTIVE order's `completedBatches` count
+5. If `completedBatches >= totalBatchesScheduled`, marks order as COMPLETED and auto-promotes next pending order
+
+**Inventory Deduction Details**: The `percentage` value in mixture ratios represents the exact kg weight deducted per batch. For example, `{ ingredientId: "ING-001", percentage: 40 }` deducts 40 kg of ING-001 per completed batch.
+
+#### System
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/health` | None | Health check. Returns `{ status: 'ok', time: number }` |
+| `GET` | `/api/info` | None | Server info. Returns `{ localIp, port }` |
+| `GET` | `/api/translate` | None | Google Translate bridge. Query: `?text=Hello` → `{ translated: "..." }` |
+| `POST` | `/api/reset` | None | Clear all batch logs, reset orders to seed state |
+| `POST` | `/api/reseed` | None | Delete all data and re-run seed data |
 
 ---
 
-## 💻 Floor Terminal Emulator (Lightweight CLI)
-A lightweight command-line companion script is included to emulate a physical shop-floor Android tablet terminal. It enables testing the complete bi-directional order dispatch and batch completion loop without running Android Studio or a heavy emulator.
+## Android App Walkthrough
 
-To run the emulator:
-1. Ensure the backend server is running (`npm run dev` or `npm run server`).
-2. Open a separate terminal window and execute:
-   ```bash
-   npm run emulator
-   ```
-3. Use the following keyboard controls inside the emulator CLI:
-   * Press `c` to complete a batch for the current active order. This automatically:
-     * Registers a new production batch log on the server.
-     * Deducts the appropriate raw ingredients from inventory.
-     * Syncs order progress in real-time.
-   * Press `q` to quit the emulator.
+The native Android app is designed for **10-inch widescreen tablets** in rugged factory environments. The UI uses high-contrast colors, large touch targets suitable for gloved hands, and 100% Hindi (Devanagari) text.
+
+### Screen 1: Login & Pairing (`LoginScreen.kt`)
+
+The login screen serves dual purpose:
+
+**QR Pairing (Primary)**:
+- On first launch, the app shows a QR scanner view using CameraX + MLKit
+- The admin generates a pairing QR code from the web dashboard (Link Connection tab)
+- The QR encodes a JSON payload: `{ url, token, station }`
+- Scanning updates the app's encrypted shared preferences with the server URL and station token
+- The app immediately begins polling the server for orders and products
+
+**Manual Setup (Fallback)**:
+- Server URL, station ID, and token can be entered manually
+- A "Validate Connection" button tests the pairing
+
+**Safety Checklist**:
+Before starting a shift, the operator must confirm three safety items:
+1. Helmet check
+2. Workplace hygiene inspection
+3. Machine pre-flight logs
+
+**Shift Start**:
+- Worker ID and PIN are captured and stored in Room as an `ActiveShiftEntity`
+- The app navigates to the timer screen
+
+### Screen 2: Active Batch Timer (`WorkerTimerScreen.kt`)
+
+The primary operator screen during production:
+
+- **Countdown Ring**: A circular timer showing remaining time for the current batch (nominal duration from product config, typically 6-8 minutes)
+- **Active Order Display**: Product name (Hindi), order ID, progress (completed/total batches)
+- **Next Job Card**: Shows the next pending order in queue
+- **Batch Completion**: A `SwipeToConfirmSlider` — the operator drags to confirm batch completion (prevents accidental triggers). On completion:
+  - A `BatchLogEntity` is inserted into Room
+  - The log is added to the Outbox for sync
+  - A PATCH request updates the server's order progress
+  - The timer resets to the nominal duration for the next batch
+- **Break Overlay**: Operators can start/end breaks. Break status syncs to the server and is visible on the admin dashboard
+- **Navigation**: Quick access to Extruder diagnostics and Emergency screens
+
+### Screen 3: Extruder Diagnostics (`WorkerExtruderScreen.kt`)
+
+- **Temperature Gauge**: Live fluctuating temperature display (simulated, fluctuates between 176-181°C)
+- **Schematic Drawing**: Simplified extruder visualization
+- **Temperature Confirmation**: Swipe-to-confirm for temperature readings
+- **Quick Access**: Navigation to timer and emergency screens
+
+### Screen 4: Emergency Reporting (`EmergencyScreen.kt`)
+
+- **Issue Selection Grid**: Operators tap to select emergency types (mechanical jam, feedstock blockage, power failure, etc.)
+- **Comments Field**: Optional text description
+- **Swipe-to-Report**: Confirms and sends the emergency log
+- **Auto-Navigation**: Returns to timer screen after submission
+
+### Offline-First Architecture
+
+The Android app implements a robust offline-first pattern:
+
+1. **Local Database**: All operations write to Room SQLite first
+2. **Outbox Pattern**: Completed batch logs are written to an `OutboxEntity` table
+3. **WorkManager Sync**: A `SyncWorker` runs when the network is available, posting pending outbox items to `POST /api/logs/bulk`
+4. **Polling Loop**: Every 2 seconds, the app polls `GET /api/orders` and `GET /api/products` to stay synchronized
+5. **Token Validation**: Every poll cycle also validates the station token. Invalid tokens trigger re-pairing
+6. **Kiosk Crash Recovery**: An uncaught exception handler automatically restarts the app on crash
+
+### Android Room Entities
+
+```
+ProductEntity         → products table (cached from server)
+BatchLogEntity        → batch_logs table (local records)
+ActiveShiftEntity     → active_shift table (current shift state)
+OutboxEntity          → outbox table (pending sync items)
+```
 
 ---
+
+## Admin Dashboard Walkthrough
+
+The web dashboard is a single-page React application with 5 tabs, all polling the server every 2 seconds for real-time updates.
+
+### Tab 1: Live Control Panel (`dashboard`)
+
+- **Live Metrics Cards**:
+  - Time since last batch update
+  - Total batches completed (success count)
+  - Total batches ordered
+- **Preset Recipe Dispatch Console**: Create new orders by selecting a product, choosing weight-wise or batch-wise production mode, and specifying target quantity. Auto-calculates batch count from batch size.
+- **Active Floor Assembly Queue**: Table of all orders with drag-to-reorder for pending items. Shows progress bars, assigned line, status badges. Admin can dispatch pending orders (set to ACTIVE) or cancel/delete orders.
+- **Admin Commands**: Clear all logs, reseed default datasets.
+- **Break Alerts**: Red banner when stations are on break.
+
+### Tab 2: Product Recipes (`products`)
+
+- Grid view of all registered products with:
+  - Hindi and English names
+  - Color coding
+  - Batch duration
+  - Manual file reference
+  - Active/inactive status
+- **Register New Mixture Formula**: Modal form with:
+  - Auto-generated product ID
+  - English name input (auto-translates to Hindi via Google Translate API)
+  - Batch time (minutes)
+  - Color picker
+  - Manual file name
+  - **Ingredient Ratio Editor**: For each raw material in inventory, a percentage slider. Sum must equal 100 (or exact batch weight like 600/1000).
+- Edit and delete existing products
+
+### Tab 3: Log Vault (`logs`)
+
+- Searchable table of all batch logs
+- Filter by production line (Line A/B/C)
+- Columns: Batch ID, product name (English/Hindi), line, units produced/target, status (Success/Failed), timestamp
+- Clear logs button
+
+### Tab 4: Inventory Management (`inventory`)
+
+- Two-column layout: Raw Materials (consumables) and Finished Goods
+- Each item shows: name, current stock, unit, min stock threshold
+- **Stock Adjustment**: Inline +/- buttons for quick adjustments. Dispatch (negative) or restock (positive) with configurable amounts.
+- **Add New Material**: Modal form with auto-Hindi-translation
+- Items below minimum stock are highlighted in red
+
+### Tab 5: Link Connection Architecture (`link-integration`)
+
+- **Station Pairing QR Generator**:
+  - Server URL field (auto-detected from browser hostname)
+  - Station ID input (default: KIOSK-01)
+  - "Generate New Token" button → creates a station token via the API
+  - Generates a QR code image encoding `{ url, token, station }`
+  - Copyable JSON payload for manual pairing
+- **Worker Panel Preview**: An embedded worker view for testing (accessible via `?workerToken=DASHBOARD-DEV-TOKEN` query parameter)
+
+### Worker Panel (Embedded)
+
+When accessed with `?workerToken=DASHBOARD-DEV-TOKEN` query parameter, the dashboard switches to a simplified worker terminal view with:
+- Active order processing (units increment +100/+500/+1000 buttons, progress bar)
+- Pending queue display with Start Production buttons
+- Line assignment selector
+- Complete / Report Alarm buttons
+- Completed today summary
+
+---
+
+## Security Model
+
+### Authentication Layers
+1. **Dashboard Basic Auth**: Protects the web UI and static assets. Default credentials `admin:nexus123`.
+2. **API Bearer Token**: All batch log submissions require a valid station token.
+3. **Network Security**: The Android app uses cleartext HTTP for development but enforces HTTPS in release builds.
+
+### Token System
+- Station tokens are long-lived (100 years) for industrial environments where frequent re-authentication is impractical
+- Tokens are generated server-side and stored in the `station_tokens` table
+- The admin dashboard generates new tokens on demand via the QR pairing interface
+- A development master token (`sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O`) bypasses token validation
+
+### Environment Variables
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PORT` | `3001` | Express server port |
+| `DASHBOARD_USER` | `admin` | Basic auth username |
+| `DASHBOARD_PASSWORD` | `nexus123` | Basic auth password |
+| `GEMINI_API_KEY` | — | Reserved for future AI features |
+
+---
+
+## Deployment
+
+### Local Network Deployment
+
+1. Build the web dashboard: `pnpm build`
+2. Start the server: `pnpm server`
+3. Find the host machine's LAN IP: `pnpm server` logs the detected IP, or use `GET /api/info`
+4. From the admin dashboard, use the Link Connection tab to generate a pairing QR pointing to `http://<lan-ip>:3001`
+5. On the Android tablet, scan the QR to pair
+
+### Tailscale VPN (Recommended)
+
+For secure remote access without port forwarding:
+
+1. Install [Tailscale](https://tailscale.com) on both the server and Android tablet
+2. Start the server: `pnpm server` (binds to `0.0.0.0`, so Tailscale interface is automatically available)
+3. The admin dashboard automatically detects Tailscale IPs (starting with `100.`) and formats pairing URLs accordingly
+4. Generate and scan the pairing QR — traffic stays on the encrypted Tailscale mesh network
+
+### Public Tunnels (Development)
+
+```bash
+# localtunnel
+pnpm tunnel
+
+# With dev server
+pnpm dev:tunnel
+```
+
+The custom fetch wrapper in the web dashboard automatically adds `Bypass-Tunnel-Reminder`, `ngrok-skip-browser-warning`, and `serveo-skip-browser-warning` headers to prevent tunnel interstitial pages.
+
+### CI/CD
+
+GitHub Actions workflow (`.github/workflows/android-build.yml`):
+- Triggered on push/PR to `main`
+- Sets up JDK 17, Node.js 20, pnpm
+- Builds React app (`pnpm build`)
+- Syncs with Capacitor (`pnpm cap:sync`)
+- Builds both Capacitor APK (`./gradlew assembleDebug`) and native APK
+- Uploads both APKs as build artifacts
+
+---
+
+## Development
+
+### Environment Setup
+
+```bash
+# Install pnpm globally
+npm install -g pnpm
+
+# Clone and install
+git clone <repo>
+cd SAFE-inventory
+pnpm install
+
+# For Android development, ensure:
+# - ANDROID_HOME is set
+# - local.properties contains sdk.dir
+# - JDK 17+ is available
+```
+
+### Available Scripts
+
+| Command | Description |
+|---------|-------------|
+| `pnpm dev` | Start Express server + Vite dev server concurrently |
+| `pnpm server` | Start Express server only (production mode) |
+| `pnpm build` | TypeScript compile + Vite build |
+| `pnpm emulator` | CLI floor terminal emulator |
+| `pnpm tunnel` | Expose port 3001 via localtunnel |
+| `pnpm cap:sync` | Sync Capacitor with web build |
+| `pnpm cap:build` | Build web + sync Capacitor |
+| `./gradlew assembleDebug` | Build Android debug APK |
+| `./gradlew testDebugUnitTest` | Run Android unit tests |
+
+### Key Development Patterns
+
+**Server (`server/index.js`)**:
+- All routes are defined in a single file for simplicity
+- Database queries use promise-based wrappers (`run`, `get`, `all`) around the callback-based `sqlite3` API
+- Migrations are handled inline with `ALTER TABLE ADD COLUMN` in try/catch blocks
+- The server serves compiled `dist/` as static files with SPA fallback
+
+**Dashboard (`src/App.tsx`)**:
+- State is managed with React `useState` hooks (no Redux/Zustand)
+- Polling is done via `setInterval` every 2 seconds
+- API calls use a `customFetch` wrapper that adds bypass headers
+- The worker panel is a conditional render based on `workerToken` query parameter
+- All UI is inline in a single component (~2000 lines)
+
+**Android (`IndustrialViewModel.kt`)**:
+- Central ViewModel manages all app state via `StateFlow`
+- Polling loop runs on `Dispatchers.IO` in a coroutine
+- Room operations use suspended DAO methods
+- OkHttp is used directly (Retrofit declared but not fully utilized)
+
+---
+
+## Configuration Reference
+
+### `vite.config.ts`
+- Port: 3005
+- Proxy: `/api` → `http://localhost:3001`
+- React plugin enabled
+
+### `tailwind.config.js`
+Custom industrial color palette:
+- `industrial-accent`: `#00F0FF` (cyan) — primary interactive elements
+- `industrial-success`: `#10B981` (emerald) — success states
+- `industrial-safety`: `#FF6B00` (orange) — warnings and active states
+- `industrial-danger`: `#EF4444` (red) — error states
+- `industrial-border`: `#1F2937` — borders and dividers
+- `industrial-card`: `#161920` — card backgrounds
+
+### `capacitor.config.ts`
+- App ID: `com.safinventory.admin`
+- Web directory: `dist`
+- Scheme: `https` (for production HTTPS)
+
+### `gradle/libs.versions.toml`
+Version catalog for all Android dependencies (AGP 9.1.1, Kotlin 2.2.10, Compose BOM 2024.09.00, Room 2.7.0, etc.)
+
+---
+
+## Troubleshooting
+
+### Port Already in Use
+```bash
+# Find the process using port 3001
+lsof -i :3001
+# Kill it
+kill -9 <PID>
+# Or change port
+PORT=3002 pnpm server
+```
+
+### Database Corruption
+```bash
+# Delete the database and restart (auto-recreates with seed data)
+rm nexus.db
+pnpm dev
+```
+
+### Android Build Fails
+- Ensure `local.properties` exists with `sdk.dir=/path/to/Android/Sdk`
+- Use JDK 17+ (check with `java -version`)
+- Clean build: `./gradlew clean assembleDebug`
+
+### Tablet Can't Connect
+- Verify the server is running: `curl http://localhost:3001/api/health`
+- Check the server URL in the tablet's pairing (must match the server's LAN IP, not `localhost`)
+- Ensure no firewall is blocking port 3001
+- On the tablet, the debug APK allows cleartext HTTP to `localhost`, `10.0.2.2` (Android emulator), and `192.168.*` addresses

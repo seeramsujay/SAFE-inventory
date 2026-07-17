@@ -2430,6 +2430,77 @@ export default function App() {
 
             <div className="flex flex-col gap-6">
               
+              {/* STATION PAIRING QR CODE */}
+              <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded flex flex-col gap-4 shadow-lg relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-industrial-accent/5 rounded-full filter blur-2xl pointer-events-none"></div>
+                
+                <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
+                  <QrCode className="h-5 w-5 text-industrial-accent" />
+                  STATION PAIRING CONTROL
+                </h3>
+                <p className="text-xs text-gray-400 font-mono leading-relaxed">
+                  Generate a pairing configuration payload and QR code to sync mobile/handheld tablet terminals.
+                </p>
+
+                <div className="flex flex-col gap-3 font-mono text-xs">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-gray-400 font-bold uppercase">Station ID:</label>
+                    <input
+                      type="text"
+                      value={pairingStationId}
+                      onChange={(e) => setPairingStationId(e.target.value)}
+                      className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded px-3 py-2 focus:border-industrial-accent outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-gray-400 font-bold uppercase">Server URL endpoint:</label>
+                    <input
+                      type="text"
+                      value={pairingServerUrl}
+                      onChange={(e) => setPairingServerUrl(e.target.value)}
+                      className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded px-3 py-2 focus:border-industrial-accent outline-none font-mono"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleGeneratePairingQR}
+                    className="bg-industrial-accent hover:bg-cyan-500 font-bold font-mono text-black py-2 rounded transition uppercase tracking-widest text-xs mt-1 shadow-md shadow-industrial-accent/25"
+                  >
+                    Generate Pairing Payload
+                  </button>
+                </div>
+
+                <div className="border-t border-gray-800 pt-4 flex flex-col gap-4 items-center">
+                  <div className="bg-[#161920] p-3 rounded-lg border border-[#00F0FF]/20 flex items-center justify-center shadow-inner">
+                    <img 
+                      src={qrCodeImageUrl} 
+                      alt="Pairing QR Code" 
+                      className="w-48 h-48 rounded border border-gray-800 p-2 bg-[#12151C]"
+                    />
+                  </div>
+
+                  <div className="w-full flex flex-col gap-1.5 font-mono text-[10px]">
+                    <span className="text-gray-500 uppercase">Generated configuration JSON:</span>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        readOnly 
+                        value={generatedPairingJson} 
+                        className="bg-[#0B0D10] text-gray-400 border border-gray-800 rounded px-2 py-1 flex-1 font-mono text-[10px] outline-none text-ellipsis overflow-hidden" 
+                      />
+                      <button 
+                        onClick={handleCopyLink}
+                        className="bg-gray-800 hover:bg-gray-700 text-white px-2 py-1 rounded border border-gray-700 hover:border-gray-600 transition flex items-center gap-1 font-bold whitespace-nowrap"
+                      >
+                        <Copy className="w-3 h-3" />
+                        {copiedLink ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="bg-industrial-card border-2 border-industrial-border p-6 rounded flex flex-col gap-4 shadow-lg">
                 <h3 className="text-base font-black tracking-tight text-white uppercase font-display flex items-center gap-2">
                   <FileSpreadsheet className="h-5 w-5 text-industrial-accent" />
