@@ -29,6 +29,8 @@ dist-ssr/
 
 # Local Persistent Database Files
 api_logs.json
+nexus.db
+uv.lock
 
 # System Files
 .DS_Store

@@ -1,0 +1,16 @@
+[Unit]
+Description=Industrial Nexus Cyber-Physical Manufacturing Server
+After=network.target
+
+[Service]
+Type=simple
+User=suzaykid
+WorkingDirectory=/home/suzaykid/Projects/SAFE-inventory
+ExecStart=/home/suzaykid/.nvm/versions/node/v20.19.5/bin/node server/index.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+EnvironmentFile=/home/suzaykid/Projects/SAFE-inventory/.env
+
+[Install]
+WantedBy=multi-user.target

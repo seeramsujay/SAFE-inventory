@@ -16,7 +16,8 @@
     "cap:build": "pnpm build && pnpm cap sync",
     "tunnel": "npx localtunnel --port 3001 --host https://localtunnel.me",
     "dev:tunnel": "concurrently \"node server/index.js\" \"vite\" \"npx localtunnel --port 3001 --host https://localtunnel.me\"",
-    "prod:tunnel": "concurrently \"node server/index.js\" \"npx localtunnel --port 3001 --host https://localtunnel.me\""
+    "prod:tunnel": "concurrently \"node server/index.js\" \"npx localtunnel --port 3001 --host https://localtunnel.me\"",
+    "test:server": "node --test server/tests/api.test.js"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.0",

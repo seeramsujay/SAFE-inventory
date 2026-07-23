@@ -78,7 +78,7 @@ async function authenticateToken(req, res, next) {
     return res.status(401).json({ error: 'Missing station token. Scan pairing QR.' });
   }
 
-  const masterApiKey = 'sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O';
+  const masterApiKey = process.env.MASTER_API_KEY || 'sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O';
   if (token === masterApiKey) {
     req.stationId = req.headers['x-station-id'] || 'KIOSK-01';
     return next();
@@ -125,7 +125,7 @@ app.get('/api/auth/validate', async (req, res) => {
 
   if (!token) return res.json({ valid: false, reason: 'no_token' });
 
-  const masterApiKey = 'sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O';
+  const masterApiKey = process.env.MASTER_API_KEY || 'sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O';
   if (token === masterApiKey) return res.json({ valid: true, stationId: req.headers['x-station-id'] || 'KIOSK-01' });
 
   try {
@@ -145,10 +145,19 @@ app.post('/api/stations/break', authenticateToken, async (req, res) => {
   try {
     const status = isOnBreak ? 1 : 0;
     const breakStarted = isOnBreak ? Date.now() : 0;
-    await run(
-      'UPDATE station_tokens SET isOnBreak = ?, breakStartedAt = ? WHERE token = ? OR stationId = ?',
-      [status, breakStarted, token, req.stationId]
-    );
+    const existing = await get('SELECT * FROM station_tokens WHERE token = ? OR stationId = ?', [token, req.stationId]);
+    if (existing) {
+      await run(
+        'UPDATE station_tokens SET isOnBreak = ?, breakStartedAt = ? WHERE token = ? OR stationId = ?',
+        [status, breakStarted, token, req.stationId]
+      );
+    } else {
+      const expiresAt = Date.now() + 100 * 365 * 24 * 60 * 60 * 1000;
+      await run(
+        'INSERT INTO station_tokens (token, stationId, issuedAt, expiresAt, isOnBreak, breakStartedAt) VALUES (?, ?, ?, ?, ?, ?)',
+        [token || ('TOKEN-' + req.stationId), req.stationId, Date.now(), expiresAt, status, breakStarted]
+      );
+    }
     res.json({ success: true, isOnBreak: status, breakStartedAt: breakStarted });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -247,6 +256,9 @@ app.get('/api/orders', async (req, res) => {
 
 app.post('/api/orders', async (req, res) => {
   const { id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled, completedBatches, status, colorHex } = req.body;
+  if (!id) {
+    return res.status(400).json({ error: 'Order id is required' });
+  }
   try {
     const activeOrder = await get("SELECT * FROM orders WHERE status = 'ACTIVE' LIMIT 1");
     const finalStatus = status || (activeOrder ? 'PENDING' : 'ACTIVE');
@@ -261,8 +273,13 @@ app.post('/api/orders', async (req, res) => {
        ON CONFLICT(id) DO UPDATE SET
          completedBatches=excluded.completedBatches,
          status=excluded.status`,
-      [id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled, completedBatches || 0, finalStatus, Date.now(), colorHex, nextQ]
+      [id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled || 1, completedBatches || 0, finalStatus, Date.now(), colorHex, nextQ]
     );
+
+    if (finalStatus === 'ACTIVE') {
+      await run("UPDATE orders SET status = 'PENDING' WHERE id != ? AND status = 'ACTIVE'", [id]);
+    }
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -610,8 +627,9 @@ app.get('/*splat', (req, res, next) => {
 
 // Start listening
 initDb().then(() => {
-  const server = app.listen(PORT, () => {
-    console.log(`Production Nexus server listening on port ${PORT}`);
+  const HOST = process.env.HOST || '0.0.0.0';
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`Production Nexus server listening on http://${HOST}:${PORT}`);
   });
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {

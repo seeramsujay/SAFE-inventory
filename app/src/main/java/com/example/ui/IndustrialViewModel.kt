@@ -108,10 +108,18 @@ class IndustrialViewModel(
     val currentScreen: StateFlow<String> = _currentScreen.asStateFlow()
 
     fun savePairing(stationId: String, token: String, url: String) {
-        com.example.data.PreferencesManager.savePairing(getApplication(), url, token, stationId)
+        var cleanedUrl = url.trim()
+        if (cleanedUrl.isNotBlank() && !cleanedUrl.startsWith("http://") && !cleanedUrl.startsWith("https://")) {
+            cleanedUrl = "http://$cleanedUrl"
+        }
+        if (cleanedUrl.endsWith("/")) {
+            cleanedUrl = cleanedUrl.substring(0, cleanedUrl.length - 1)
+        }
+        com.example.data.PreferencesManager.savePairing(getApplication(), cleanedUrl, token, stationId)
         _stationId.value = stationId
         workerIdInput.value = stationId
         pinInput.value = token
+        triggerOfflineSync()
     }
 
     fun clearPairing() {
