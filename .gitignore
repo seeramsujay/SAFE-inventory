@@ -11,6 +11,7 @@ local.properties
 .cxx/
 *.apk
 *.aar
+release-apks/
 debug.keystore
 
 # Web Dependencies & Builds

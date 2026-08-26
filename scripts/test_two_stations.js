@@ -404,8 +404,60 @@ async function runTests() {
     assert(actualDeduction === expectedMaizeDeduction, 
       `Bulk pulverization deducted exactly ${expectedMaizeDeduction} kg of raw maize (3 batches x 120 kg)`);
 
+    // ----------------------------------------------------
+    // STEP 12: User Management & Role-Based Access Control
+    // ----------------------------------------------------
+    logStep(12, 'Testing User Management CRUD & Inventory-Manager Role...');
+
+    // 1. Fetch Users List
+    const usersListRes = await request('/api/users');
+    assert(usersListRes.ok && Array.isArray(usersListRes.data), 'Admin successfully retrieved user list');
+    const adminUser = usersListRes.data.find(u => u.username === 'admin');
+    assert(adminUser && adminUser.role === 'admin', 'Default admin user exists with role "admin"');
+
+    // 2. Create a new Inventory Manager User
+    const testUsername = `inv_test_${Date.now()}`;
+    const createUserRes = await request('/api/users', {
+      method: 'POST',
+      body: JSON.stringify({
+        username: testUsername,
+        password: 'password123',
+        role: 'inventory-manager',
+        name: 'Test Inventory Lead',
+        nameHi: 'टेस्ट इन्वेंटरी हेड'
+      })
+    });
+    assert(createUserRes.ok && createUserRes.data?.username === testUsername, 'Admin created new inventory-manager user');
+    const createdUserId = createUserRes.data.id;
+
+    // 3. Test Authentication for new Inventory Manager
+    const loginRes = await request('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        username: testUsername,
+        password: 'password123'
+      })
+    });
+    assert(loginRes.ok && loginRes.data?.success === true, 'New inventory-manager authenticated successfully');
+    assert(loginRes.data?.user?.role === 'inventory-manager', 'Authenticated user role is strictly "inventory-manager"');
+
+    // 4. Update the user
+    const updateUserRes = await request(`/api/users/${createdUserId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: 'Updated Inventory Lead'
+      })
+    });
+    assert(updateUserRes.ok && updateUserRes.data?.name === 'Updated Inventory Lead', 'User profile updated successfully');
+
+    // 5. Delete the test user
+    const deleteUserRes = await request(`/api/users/${createdUserId}`, {
+      method: 'DELETE'
+    });
+    assert(deleteUserRes.ok && deleteUserRes.data?.success === true, 'Test user deleted successfully');
+
     console.log('\n\x1b[32m======================================================================\x1b[0m');
-    console.log('\x1b[32m\x1b[1m   ALL 11 VERIFICATION SUITES PASSED CLEANLY WITH ZERO FAILURES!      \x1b[0m');
+    console.log('\x1b[32m\x1b[1m   ALL 12 VERIFICATION SUITES PASSED CLEANLY WITH ZERO FAILURES!      \x1b[0m');
     console.log('\x1b[32m======================================================================\x1b[0m\n');
 
   } catch (err) {

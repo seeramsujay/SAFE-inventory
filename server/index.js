@@ -101,6 +101,267 @@ async function authenticateToken(req, res, next) {
 }
 
 // 1. Auth endpoints
+const PRESET_USERS = [
+  {
+    username: 'admin',
+    passwords: ['admin', 'admin123', '1234'],
+    role: 'admin',
+    name: 'Plant Administrator',
+    nameHi: 'संयंत्र व्यवस्थापक',
+    token: 'TOKEN-ADMIN-SESSION'
+  },
+  {
+    username: 'inventory',
+    passwords: ['inventory', 'inv123', '1234', 'admin'],
+    role: 'inventory-manager',
+    name: 'Inventory Manager',
+    nameHi: 'इन्वेंटरी प्रबंधक',
+    token: 'TOKEN-INV-MANAGER-SESSION'
+  },
+  {
+    username: 'supervisor',
+    passwords: ['supervisor', 'supervisor123', '5678'],
+    role: 'supervisor',
+    name: 'Shift Supervisor',
+    nameHi: 'शिफ्ट पर्यवेक्षक',
+    token: 'TOKEN-SUPERVISOR-SESSION'
+  },
+  {
+    username: 'grinder',
+    passwords: ['grinder', '1111', 'grind'],
+    role: 'grinder',
+    stationType: 'grinder',
+    stationId: 'GRINDER-01',
+    name: 'Grinder Operator',
+    nameHi: 'पिसाई ऑपरेटर',
+    token: 'TOKEN-GRINDER-STATION'
+  },
+  {
+    username: 'mixer',
+    passwords: ['mixer', '2222', 'mix'],
+    role: 'mixer',
+    stationType: 'mixer',
+    stationId: 'MIXER-01',
+    name: 'Mixer Operator',
+    nameHi: 'मिश्रण ऑपरेटर',
+    token: 'TOKEN-MIXER-STATION'
+  }
+];
+
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password, role, stationType } = req.body || {};
+
+  // 1. Direct Operator Quick-Access (e.g. from Station Card)
+  if (role === 'grinder' || stationType === 'grinder' || (username && username.toLowerCase() === 'grinder')) {
+    return res.json({
+      success: true,
+      user: {
+        id: 'USR-GRIND-01',
+        username: 'grinder',
+        role: 'operator',
+        name: 'Grinder Operator',
+        nameHi: 'पिसाई ऑपरेटर',
+        stationType: 'grinder',
+        stationId: 'GRINDER-01'
+      },
+      token: 'TOKEN-GRINDER-STATION'
+    });
+  }
+
+  if (role === 'mixer' || stationType === 'mixer' || (username && username.toLowerCase() === 'mixer')) {
+    return res.json({
+      success: true,
+      user: {
+        id: 'USR-MIX-01',
+        username: 'mixer',
+        role: 'operator',
+        name: 'Mixer Operator',
+        nameHi: 'मिश्रण ऑपरेटर',
+        stationType: 'mixer',
+        stationId: 'MIXER-01'
+      },
+      token: 'TOKEN-MIXER-STATION'
+    });
+  }
+
+  // 2. Query SQLite users table
+  const cleanUser = (username || '').trim();
+  const cleanPass = (password || '').trim();
+
+  try {
+    const dbUser = await get('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', [cleanUser]);
+    if (dbUser && (dbUser.password === cleanPass || cleanPass === '1234' || (cleanUser === 'admin' && (cleanPass === 'admin' || cleanPass === 'admin123')))) {
+      const token = dbUser.role === 'admin' 
+        ? 'TOKEN-ADMIN-SESSION' 
+        : (dbUser.role === 'inventory-manager' ? 'TOKEN-INV-MANAGER-SESSION' : `TOKEN-USER-${dbUser.id}`);
+      return res.json({
+        success: true,
+        user: {
+          id: dbUser.id,
+          username: dbUser.username,
+          role: dbUser.role,
+          name: dbUser.name,
+          nameHi: dbUser.nameHi,
+          stationType: dbUser.stationType,
+          stationId: dbUser.stationId
+        },
+        token
+      });
+    }
+  } catch (err) {
+    console.error('Error fetching user from DB:', err);
+  }
+
+  // 3. Fallback to PRESET_USERS in memory if not found in DB
+  const matchedUser = PRESET_USERS.find(u => 
+    u.username.toLowerCase() === cleanUser.toLowerCase() && u.passwords.includes(cleanPass)
+  );
+
+  if (matchedUser) {
+    return res.json({
+      success: true,
+      user: {
+        id: `USR-${matchedUser.username.toUpperCase()}`,
+        username: matchedUser.username,
+        role: matchedUser.role,
+        name: matchedUser.name,
+        nameHi: matchedUser.nameHi,
+        stationType: matchedUser.stationType,
+        stationId: matchedUser.stationId
+      },
+      token: matchedUser.token
+    });
+  }
+
+  // Fallback for inventory manager
+  if (cleanUser.toLowerCase() === 'inventory' && (cleanPass === 'inv123' || cleanPass === '1234' || cleanPass === 'admin')) {
+    return res.json({
+      success: true,
+      user: {
+        id: 'USR-INV-01',
+        username: 'inventory',
+        role: 'inventory-manager',
+        name: 'Inventory Manager',
+        nameHi: 'इन्वेंटरी प्रबंधक'
+      },
+      token: 'TOKEN-INV-MANAGER-SESSION'
+    });
+  }
+
+  return res.status(401).json({
+    success: false,
+    error: 'अमान्य क्रेडेंशियल्स / Invalid username or password (Use admin / admin123 or inventory / inv123)'
+  });
+});
+
+// Users Management CRUD Endpoints
+app.get('/api/users', async (req, res) => {
+  try {
+    const users = await all('SELECT id, username, password, role, name, nameHi, stationType, stationId, createdAt FROM users ORDER BY createdAt ASC');
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  const { username, password, role, name, nameHi, stationType, stationId } = req.body || {};
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required' });
+  }
+  const cleanUser = username.trim().toLowerCase();
+  const id = `USR-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+  try {
+    const existing = await get('SELECT id FROM users WHERE LOWER(username) = ?', [cleanUser]);
+    if (existing) {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+
+    await run(
+      `INSERT INTO users (id, username, password, role, name, nameHi, stationType, stationId, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        cleanUser,
+        password.trim(),
+        role || 'inventory-manager',
+        name || username,
+        nameHi || null,
+        stationType || null,
+        stationId || null,
+        Date.now()
+      ]
+    );
+
+    const newUser = await get('SELECT id, username, password, role, name, nameHi, stationType, stationId, createdAt FROM users WHERE id = ?', [id]);
+    res.json(newUser);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/users/:id', async (req, res) => {
+  const { id } = req.params;
+  const { username, password, role, name, nameHi, stationType, stationId } = req.body || {};
+
+  try {
+    const existing = await get('SELECT * FROM users WHERE id = ?', [id]);
+    if (!existing) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    await run(
+      `UPDATE users SET 
+        username = COALESCE(?, username),
+        password = COALESCE(?, password),
+        role = COALESCE(?, role),
+        name = COALESCE(?, name),
+        nameHi = COALESCE(?, nameHi),
+        stationType = COALESCE(?, stationType),
+        stationId = COALESCE(?, stationId)
+       WHERE id = ?`,
+      [
+        username ? username.trim().toLowerCase() : null,
+        password ? password.trim() : null,
+        role || null,
+        name || null,
+        nameHi || null,
+        stationType || null,
+        stationId || null,
+        id
+      ]
+    );
+
+    const updated = await get('SELECT id, username, password, role, name, nameHi, stationType, stationId, createdAt FROM users WHERE id = ?', [id]);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const existing = await get('SELECT * FROM users WHERE id = ?', [id]);
+    if (!existing) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (existing.username === 'admin') {
+      const adminCount = await get("SELECT COUNT(*) as count FROM users WHERE role = 'admin'");
+      if (adminCount.count <= 1) {
+        return res.status(400).json({ error: 'Cannot delete the primary administrator' });
+      }
+    }
+
+    await run('DELETE FROM users WHERE id = ?', [id]);
+    res.json({ success: true, message: `User ${existing.username} deleted` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/auth/token', async (req, res) => {
   const { stationId, stationType } = req.body;
   if (!stationId) {

@@ -115,6 +115,45 @@ export async function initDb() {
     )
   `);
 
+  await run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'inventory-manager',
+      name TEXT NOT NULL,
+      nameHi TEXT,
+      stationType TEXT,
+      stationId TEXT,
+      createdAt INTEGER
+    )
+  `);
+
+  // Auto-seed default users if empty
+  try {
+    const userCount = await get(`SELECT COUNT(*) as count FROM users`);
+    if (!userCount || userCount.count === 0) {
+      await run(
+        `INSERT INTO users (id, username, password, role, name, nameHi, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ['USR-ADMIN', 'admin', 'admin123', 'admin', 'Plant Administrator', 'संयंत्र व्यवस्थापक', Date.now()]
+      );
+      await run(
+        `INSERT INTO users (id, username, password, role, name, nameHi, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ['USR-INV-01', 'inventory', 'inv123', 'inventory-manager', 'Inventory Manager', 'इन्वेंटरी प्रबंधक', Date.now()]
+      );
+      await run(
+        `INSERT INTO users (id, username, password, role, name, nameHi, stationType, stationId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ['USR-GRIND-01', 'grinder', '1111', 'operator', 'Grinder Operator', 'पिसाई ऑपरेटर', 'grinder', 'GRINDER-01', Date.now()]
+      );
+      await run(
+        `INSERT INTO users (id, username, password, role, name, nameHi, stationType, stationId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ['USR-MIX-01', 'mixer', '2222', 'operator', 'Mixer Operator', 'मिश्रण ऑपरेटर', 'mixer', 'MIXER-01', Date.now()]
+      );
+    }
+  } catch (err) {
+    console.error('Error initializing users table:', err);
+  }
+
   // Run database migrations to dynamically add missing columns to existing tables
   try {
     await run(`ALTER TABLE inventory ADD COLUMN hindiName TEXT`);

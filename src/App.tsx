@@ -34,8 +34,11 @@ import {
   MessageSquare,
   ClipboardCheck,
   ThumbsUp,
-  CheckSquare
+  CheckSquare,
+  LogOut
 } from 'lucide-react';
+import { LoginPage, AuthUser } from './components/LoginPage';
+import { UserManagement } from './components/UserManagement';
 
 // Interfaces mirroring the Android Room schema
 interface IngredientRatio {
@@ -235,6 +238,56 @@ export default function App() {
     return (saved === 'grinder' || saved === 'mixer') ? saved : 'mixer';
   });
 
+  // Authentication State
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
+    try {
+      const saved = localStorage.getItem('nexus_auth_user');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('workerToken');
+    const st = urlParams.get('stationType');
+    if (token) {
+      const isG = st === 'grinder' || token.toLowerCase().includes('grind');
+      return {
+        username: isG ? 'grinder' : 'mixer',
+        role: 'operator',
+        name: isG ? 'Grinder Operator' : 'Mixer Operator',
+        nameHi: isG ? 'पिसाई ऑपरेटर' : 'मिश्रण ऑपरेटर',
+        stationType: isG ? 'grinder' : 'mixer',
+        stationId: isG ? 'GRINDER-01' : 'MIXER-01'
+      };
+    }
+    return null;
+  });
+
+  const handleLoginSuccess = (user: AuthUser, token: string) => {
+    setCurrentUser(user);
+    localStorage.setItem('nexus_auth_user', JSON.stringify(user));
+    localStorage.setItem('nexus_auth_token', token);
+
+    if (user.stationType) {
+      setWorkerStationType(user.stationType);
+      setWorkerToken(token);
+      localStorage.setItem('nexus_worker_station_type', user.stationType);
+      localStorage.setItem('nexus_worker_token', token);
+    } else {
+      setWorkerToken(null);
+      localStorage.removeItem('nexus_worker_token');
+      localStorage.removeItem('nexus_worker_station_type');
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setWorkerToken(null);
+    localStorage.removeItem('nexus_auth_user');
+    localStorage.removeItem('nexus_auth_token');
+    localStorage.removeItem('nexus_worker_token');
+    localStorage.removeItem('nexus_worker_station_type');
+    window.history.replaceState({}, document.title, window.location.pathname);
+  };
+
   const [workerCelebration, setWorkerCelebration] = useState<{ active: boolean; title: string; subtitle: string; stage: 'grinder' | 'mixer' } | null>(null);
 
   // Mixer Operator Feedback State
@@ -244,7 +297,14 @@ export default function App() {
   const [mixerFeedbackRating, setMixerFeedbackRating] = useState<number>(5);
 
   // Navigation state (Active tab on admin dashboard)
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'logs' | 'link-integration' | 'inventory'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'logs' | 'link-integration' | 'inventory' | 'users'>('dashboard');
+
+  // Enforce inventory-only access for inventory-manager role
+  useEffect(() => {
+    if (currentUser?.role === 'inventory-manager' && activeTab !== 'inventory') {
+      setActiveTab('inventory');
+    }
+  }, [currentUser, activeTab]);
 
   // Inventory Management State
   const [inventory, setInventory] = useState<InventoryItem[]>(INITIAL_INVENTORY);
@@ -1172,6 +1232,13 @@ export default function App() {
   };
 
   // ----------------------------------------------------
+  // LOGIN PORTAL VIEW (if unauthenticated)
+  // ----------------------------------------------------
+  if (!currentUser && !workerToken) {
+    return <LoginPage onLoginSuccess={handleLoginSuccess} customFetch={customFetch} />;
+  }
+
+  // ----------------------------------------------------
   // WORKER PORTAL VIEW (loads when workerToken is active)
   // ----------------------------------------------------
   if (workerToken) {
@@ -1310,10 +1377,12 @@ export default function App() {
               </div>
 
               <button 
-                onClick={handleExitWorkerMode}
-                className="bg-gray-900 hover:bg-red-950/40 text-xs font-mono font-semibold px-3 py-1.5 rounded border border-gray-800 hover:border-red-500/50 transition-all text-gray-300 hover:text-white"
+                onClick={handleLogout}
+                className="bg-gray-900 hover:bg-red-950/40 text-xs font-mono font-semibold px-3 py-1.5 rounded border border-gray-800 hover:border-red-500/50 transition-all text-gray-300 hover:text-red-400 flex items-center gap-1.5"
+                title="लॉगआउट / Logout"
               >
-                Exit
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Logout</span>
               </button>
             </div>
           </div>
@@ -1805,6 +1874,23 @@ export default function App() {
                 {tailscaleIp || '100.99.115.49'}
               </span>
             </div>
+
+            {/* User Profile & Logout */}
+            {currentUser && (
+              <div className="flex items-center gap-2 bg-[#141822] border border-cyan-500/30 px-3 py-1.5 rounded">
+                <div className="w-2 h-2 rounded-full bg-cyan-400"></div>
+                <span className="text-gray-300 font-bold">{currentUser.name || currentUser.username}</span>
+                <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded font-mono uppercase">{currentUser.role}</span>
+                <button
+                  onClick={handleLogout}
+                  title="लॉगआउट / Logout"
+                  className="ml-2 p-1 hover:bg-red-500/20 text-gray-400 hover:text-red-400 rounded transition flex items-center gap-1 text-xs"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Logout</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -1816,56 +1902,77 @@ export default function App() {
         <div className="flex justify-between items-center flex-wrap gap-4 border-b border-industrial-border pb-2">
           {/* Main Toggles */}
           <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all ${
-                activeTab === 'dashboard'
-                  ? 'bg-industrial-accent text-black border-industrial-accent font-bold shadow-md shadow-industrial-accent/20'
-                  : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
-              }`}
-            >
-              📟 Live Control Panel
-            </button>
-            <button
-              onClick={() => setActiveTab('products')}
-              className={`px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all ${
-                activeTab === 'products'
-                  ? 'bg-industrial-accent text-black border-industrial-accent font-bold shadow-md shadow-industrial-accent/20'
-                  : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
-              }`}
-            >
-              🥞 Product Recipes ({products.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('logs')}
-              className={`px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all ${
-                activeTab === 'logs'
-                  ? 'bg-industrial-accent text-black border-industrial-accent font-bold shadow-md shadow-industrial-accent/20'
-                  : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
-              }`}
-            >
-              📜 Log Vault ({logs.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('inventory')}
-              className={`px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all ${
-                activeTab === 'inventory'
-                  ? 'bg-industrial-accent text-black border-industrial-accent font-bold shadow-md shadow-industrial-accent/20'
-                  : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
-              }`}
-            >
-              🌾 Inventory Management
-            </button>
-            <button
-              onClick={() => setActiveTab('link-integration')}
-              className={`px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all ${
-                activeTab === 'link-integration'
-                  ? 'bg-[#10B981] text-black border-[#10B981] font-bold shadow-md shadow-emerald-500/20'
-                  : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
-              }`}
-            >
-              🔌 Link Connection Architecture
-            </button>
+            {currentUser?.role === 'inventory-manager' ? (
+              <button
+                onClick={() => setActiveTab('inventory')}
+                className="px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all bg-emerald-500 text-black border-emerald-500 font-bold shadow-md shadow-emerald-500/20"
+              >
+                🌾 Inventory Management (स्टॉक प्रबंधन)
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => setActiveTab('dashboard')}
+                  className={`px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all ${
+                    activeTab === 'dashboard'
+                      ? 'bg-industrial-accent text-black border-industrial-accent font-bold shadow-md shadow-industrial-accent/20'
+                      : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
+                  }`}
+                >
+                  📟 Live Control Panel
+                </button>
+                <button
+                  onClick={() => setActiveTab('products')}
+                  className={`px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all ${
+                    activeTab === 'products'
+                      ? 'bg-industrial-accent text-black border-industrial-accent font-bold shadow-md shadow-industrial-accent/20'
+                      : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
+                  }`}
+                >
+                  🥞 Product Recipes ({products.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('logs')}
+                  className={`px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all ${
+                    activeTab === 'logs'
+                      ? 'bg-industrial-accent text-black border-industrial-accent font-bold shadow-md shadow-industrial-accent/20'
+                      : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
+                  }`}
+                >
+                  📜 Log Vault ({logs.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('inventory')}
+                  className={`px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all ${
+                    activeTab === 'inventory'
+                      ? 'bg-industrial-accent text-black border-industrial-accent font-bold shadow-md shadow-industrial-accent/20'
+                      : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
+                  }`}
+                >
+                  🌾 Inventory Management
+                </button>
+                <button
+                  onClick={() => setActiveTab('users')}
+                  className={`px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all ${
+                    activeTab === 'users'
+                      ? 'bg-industrial-accent text-black border-industrial-accent font-bold shadow-md shadow-industrial-accent/20'
+                      : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
+                  }`}
+                >
+                  👥 User Management
+                </button>
+                <button
+                  onClick={() => setActiveTab('link-integration')}
+                  className={`px-4 py-2 text-sm font-mono font-semibold uppercase tracking-wider border transition-all ${
+                    activeTab === 'link-integration'
+                      ? 'bg-[#10B981] text-black border-[#10B981] font-bold shadow-md shadow-emerald-500/20'
+                      : 'bg-[#161920] text-gray-400 border-industrial-border hover:text-white hover:border-gray-500'
+                  }`}
+                >
+                  🔌 Link Connection Architecture
+                </button>
+              </>
+            )}
           </div>
 
           {/* Quick Stats Summary badges */}
@@ -3256,6 +3363,11 @@ export default function App() {
             </div>
 
           </div>
+        )}
+
+        {/* TAB 5: USER MANAGEMENT (ADMIN ONLY) */}
+        {activeTab === 'users' && currentUser?.role === 'admin' && (
+          <UserManagement customFetch={customFetch} currentUser={currentUser} />
         )}
 
       </div>
