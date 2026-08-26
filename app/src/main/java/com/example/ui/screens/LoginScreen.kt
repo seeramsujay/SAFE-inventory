@@ -114,9 +114,10 @@ fun LoginScreen(
                                 modifier = Modifier.fillMaxSize()
                             )
                         } else {
+                            val curStationType = com.example.data.PreferencesManager.getStationType(context)
                             Text(
-                                text = "✔ QR SCAN SUCCESSFUL\nSTATION: $workerId\nSTATUS: KEY CONNECTED\nSERVER: ${com.example.data.PreferencesManager.getServerUrl(context)}",
-                                color = Color(0xFF00875A),
+                                text = "✔ QR SCAN SUCCESSFUL\nSTATION: $workerId [${if (curStationType == "grinder") "1. GRINDER (पिसाई)" else "2. MIXER (मिश्रण)"}]\nSTATUS: KEY CONNECTED\nSERVER: ${com.example.data.PreferencesManager.getServerUrl(context)}",
+                                color = if (curStationType == "grinder") Color(0xFFD97706) else Color(0xFF00875A),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
@@ -126,36 +127,52 @@ fun LoginScreen(
                     }
 
                     if (workerId.isBlank()) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Button(
-                                onClick = { 
-                                    viewModel.savePairing("WORKER-QR-9843", "LONG-LIVED-TOKEN", "http://10.0.2.2:3001")
-                                },
-                                shape = RoundedCornerShape(0),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A1A1A)),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(52.dp)
-                                    .border(2.dp, Color(0xFF1A1A1A))
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("SIMULATE SCAN", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 11.sp)
+                                Button(
+                                    onClick = { 
+                                        viewModel.savePairing("GRINDER-01", "TOKEN-GRINDER-STATION", "http://10.0.2.2:3001", "grinder")
+                                    },
+                                    shape = RoundedCornerShape(0),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                        .border(2.dp, Color(0xFF1A1A1A))
+                                ) {
+                                    Text("1. GRINDER (पिसाई)", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 10.sp)
+                                }
+                                
+                                Button(
+                                    onClick = { 
+                                        viewModel.savePairing("MIXER-01", "TOKEN-MIXER-STATION", "http://10.0.2.2:3001", "mixer")
+                                    },
+                                    shape = RoundedCornerShape(0),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00875A)),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                        .border(2.dp, Color(0xFF1A1A1A))
+                                ) {
+                                    Text("2. MIXER (मिश्रण)", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 10.sp)
+                                }
                             }
-                            
+
                             Button(
                                 onClick = { 
                                     showManualSetupDialog = true
                                 },
                                 shape = RoundedCornerShape(0),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00875A)),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A1A1A)),
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .height(52.dp)
+                                    .fillMaxWidth()
+                                    .height(44.dp)
                                     .border(2.dp, Color(0xFF1A1A1A))
                             ) {
-                                Text("MANUAL SETUP", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 11.sp)
+                                Text("MANUAL SETUP (मैनुअल सेटअप)", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 11.sp)
                             }
                         }
                     } else {

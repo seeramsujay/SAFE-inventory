@@ -72,7 +72,7 @@ app.use(express.static(path.join(__dirname, '../dist')));
 // Token verification middleware
 async function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = (authHeader && authHeader.split(' ')[1]) || req.query.token || req.body?.token;
 
   if (!token) {
     return res.status(401).json({ error: 'Missing station token. Scan pairing QR.' });
@@ -93,6 +93,7 @@ async function authenticateToken(req, res, next) {
       return res.status(403).json({ error: 'Station token expired. Re-pair station.' });
     }
     req.stationId = validToken.stationId;
+    req.stationType = validToken.stationType || (validToken.stationId?.toLowerCase().includes('grind') ? 'grinder' : 'mixer');
     next();
   } catch (err) {
     res.status(500).json({ error: 'Authentication internal error.' });
@@ -101,19 +102,20 @@ async function authenticateToken(req, res, next) {
 
 // 1. Auth endpoints
 app.post('/api/auth/token', async (req, res) => {
-  const { stationId } = req.body;
+  const { stationId, stationType } = req.body;
   if (!stationId) {
     return res.status(400).json({ error: 'stationId is required' });
   }
+  const finalStationType = stationType || (stationId.toLowerCase().includes('grind') ? 'grinder' : 'mixer');
   const token = 'TOKEN-' + Math.random().toString(36).substring(2, 10).toUpperCase() + '-' + Math.random().toString(36).substring(2, 10).toUpperCase();
   const expiresAt = Date.now() + 100 * 365 * 24 * 60 * 60 * 1000; // 100 years
 
   try {
     await run(
-      'INSERT INTO station_tokens (token, stationId, issuedAt, expiresAt) VALUES (?, ?, ?, ?)',
-      [token, stationId, Date.now(), expiresAt]
+      'INSERT INTO station_tokens (token, stationId, stationType, issuedAt, expiresAt) VALUES (?, ?, ?, ?, ?)',
+      [token, stationId, finalStationType, Date.now(), expiresAt]
     );
-    res.json({ token, stationId, expiresAt });
+    res.json({ token, stationId, stationType: finalStationType, expiresAt });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -121,18 +123,23 @@ app.post('/api/auth/token', async (req, res) => {
 
 app.get('/api/auth/validate', async (req, res) => {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = (authHeader && authHeader.split(' ')[1]) || req.query.token;
 
   if (!token) return res.json({ valid: false, reason: 'no_token' });
 
   const masterApiKey = process.env.MASTER_API_KEY || 'sb_publishable_XpvCTqc8gmJOxp0Rrwlyng_Sl3GEN1O';
-  if (token === masterApiKey) return res.json({ valid: true, stationId: req.headers['x-station-id'] || 'KIOSK-01' });
+  if (token === masterApiKey) {
+    const stationId = req.headers['x-station-id'] || 'KIOSK-01';
+    const stationType = req.headers['x-station-type'] || (stationId.toLowerCase().includes('grind') ? 'grinder' : 'mixer');
+    return res.json({ valid: true, stationId, stationType });
+  }
 
   try {
     const validToken = await get('SELECT * FROM station_tokens WHERE token = ?', [token]);
     if (!validToken) return res.json({ valid: false, reason: 'unknown_token' });
     if (Date.now() > validToken.expiresAt) return res.json({ valid: false, reason: 'expired' });
-    res.json({ valid: true, stationId: validToken.stationId });
+    const stationType = validToken.stationType || (validToken.stationId?.toLowerCase().includes('grind') ? 'grinder' : 'mixer');
+    res.json({ valid: true, stationId: validToken.stationId, stationType });
   } catch (err) {
     res.json({ valid: false, reason: 'db_error' });
   }
@@ -141,7 +148,7 @@ app.get('/api/auth/validate', async (req, res) => {
 app.post('/api/stations/break', authenticateToken, async (req, res) => {
   const { isOnBreak } = req.body;
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = (authHeader && authHeader.split(' ')[1]) || req.query.token || req.body?.token;
   try {
     const status = isOnBreak ? 1 : 0;
     const breakStarted = isOnBreak ? Date.now() : 0;
@@ -159,6 +166,49 @@ app.post('/api/stations/break', authenticateToken, async (req, res) => {
       );
     }
     res.json({ success: true, isOnBreak: status, breakStartedAt: breakStarted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/station/break', authenticateToken, async (req, res) => {
+  const { isOnBreak } = req.body;
+  const authHeader = req.headers['authorization'];
+  const token = (authHeader && authHeader.split(' ')[1]) || req.query.token || req.body?.token;
+  try {
+    const status = isOnBreak ? 1 : 0;
+    const breakStarted = isOnBreak ? Date.now() : 0;
+    const existing = await get('SELECT * FROM station_tokens WHERE token = ? OR stationId = ?', [token, req.stationId]);
+    if (existing) {
+      await run(
+        'UPDATE station_tokens SET isOnBreak = ?, breakStartedAt = ? WHERE token = ? OR stationId = ?',
+        [status, breakStarted, token, req.stationId]
+      );
+    } else {
+      const expiresAt = Date.now() + 100 * 365 * 24 * 60 * 60 * 1000;
+      await run(
+        'INSERT INTO station_tokens (token, stationId, issuedAt, expiresAt, isOnBreak, breakStartedAt) VALUES (?, ?, ?, ?, ?, ?)',
+        [token || ('TOKEN-' + req.stationId), req.stationId, Date.now(), expiresAt, status, breakStarted]
+      );
+    }
+    res.json({ success: true, isOnBreak: !!status, breakStartedAt: breakStarted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/station/status', async (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = (authHeader && authHeader.split(' ')[1]) || req.query.token;
+  try {
+    const st = await get('SELECT * FROM station_tokens WHERE token = ?', [token]);
+    if (!st) return res.status(404).json({ error: 'Station not found' });
+    res.json({
+      stationId: st.stationId,
+      stationType: st.stationType || (st.stationId?.toLowerCase().includes('grind') ? 'grinder' : 'mixer'),
+      isOnBreak: st.isOnBreak === 1,
+      breakStartedAt: st.breakStartedAt
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -191,12 +241,31 @@ app.get('/api/translate', async (req, res) => {
 app.get('/api/products', async (req, res) => {
   try {
     const products = await all('SELECT * FROM products');
-    // Parse ratios from string to JSON
-    const parsedProducts = products.map(p => ({
-      ...p,
-      isActive: p.isActive === 1,
-      mixtureRatios: JSON.parse(p.mixtureRatios || '[]')
-    }));
+    const invItems = await all('SELECT * FROM inventory');
+    const invMap = {};
+    invItems.forEach(i => { invMap[i.itemId] = i; });
+
+    // Parse ratios from string to JSON and enrich with stage & requiresGrinding
+    const parsedProducts = products.map(p => {
+      const rawRatios = JSON.parse(p.mixtureRatios || '[]');
+      const enrichedRatios = rawRatios.map(r => {
+        const inv = invMap[r.ingredientId];
+        const isGrind = r.stage === 'grinder' || r.requiresGrinding === true || (inv && (inv.requiresGrinding === 1 || inv.stage === 'grinder'));
+        return {
+          ...r,
+          stage: isGrind ? 'grinder' : 'mixer',
+          requiresGrinding: !!isGrind,
+          name: inv ? inv.name : r.ingredientId,
+          hindiName: inv ? inv.hindiName : ''
+        };
+      });
+      return {
+        ...p,
+        isActive: p.isActive === 1,
+        mixtureRatios: enrichedRatios,
+        ingredients: enrichedRatios
+      };
+    });
     res.json(parsedProducts);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -255,10 +324,14 @@ app.get('/api/orders', async (req, res) => {
 });
 
 app.post('/api/orders', async (req, res) => {
-  const { id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled, completedBatches, status, colorHex } = req.body;
-  if (!id) {
-    return res.status(400).json({ error: 'Order id is required' });
-  }
+  let { id, productKey, productNameEnglish, productNameHindi, recipeId, recipeName, recipeHindiName, totalBatchesScheduled, completedBatches, targetUnits, unitsProduced, status, colorHex } = req.body;
+  id = id || ('ORD-' + Math.random().toString(36).substring(2, 8).toUpperCase());
+  productKey = productKey || recipeId || 'PRD-001';
+  productNameEnglish = productNameEnglish || recipeName || 'Cream Special';
+  productNameHindi = productNameHindi || recipeHindiName || 'क्रीम स्पेशल';
+  totalBatchesScheduled = totalBatchesScheduled || (targetUnits ? Math.ceil(targetUnits / 600) : 1);
+  completedBatches = completedBatches || (unitsProduced ? Math.floor(unitsProduced / 600) : 0);
+
   try {
     const activeOrder = await get("SELECT * FROM orders WHERE status = 'ACTIVE' LIMIT 1");
     const finalStatus = status || (activeOrder ? 'PENDING' : 'ACTIVE');
@@ -273,14 +346,14 @@ app.post('/api/orders', async (req, res) => {
        ON CONFLICT(id) DO UPDATE SET
          completedBatches=excluded.completedBatches,
          status=excluded.status`,
-      [id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled || 1, completedBatches || 0, finalStatus, Date.now(), colorHex, nextQ]
+      [id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled, completedBatches, finalStatus, Date.now(), colorHex || '#FF6B00', nextQ]
     );
 
     if (finalStatus === 'ACTIVE') {
       await run("UPDATE orders SET status = 'PENDING' WHERE id != ? AND status = 'ACTIVE'", [id]);
     }
 
-    res.json({ success: true });
+    res.json({ success: true, id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -464,35 +537,66 @@ app.post('/api/inventory', async (req, res) => {
 
 // Helper for core inventory deduction & order progress logging
 async function processBatchLogDeductions(log) {
+  const batchId = log.batchId || log.id || ('LOG-' + Date.now());
+
   // 1. Deduplicate check
-  const existingLog = await get('SELECT * FROM batch_logs WHERE batchId = ?', [log.batchId]);
+  const existingLog = await get('SELECT * FROM batch_logs WHERE batchId = ?', [batchId]);
   if (existingLog) {
-    return false; // Skip
+    return { duplicate: true, success: true };
   }
 
   // 2. Write log
+  const productNameEnglish = log.productNameEnglish || log.productName || 'Cream Special';
+  const productNameHindi = log.productNameHindi || '';
+  const unitsProduced = log.unitsProduced || 0;
+  const status = log.status || 'Success';
+  const line = log.line || 'Line A';
+  const targetUnits = log.targetUnits || 0;
+  const feedbackQuality = log.feedbackQuality || (log.stage === 'mixer' ? 'Grade A - Optimal' : null);
+  const feedbackTexture = log.feedbackTexture || null;
+  const feedbackNotes = log.feedbackNotes || null;
+  const feedbackRating = log.feedbackRating != null ? parseInt(log.feedbackRating) : 5;
+
   await run(
-    `INSERT INTO batch_logs (batchId, productNameHindi, productNameEnglish, line, unitsProduced, status, timestamp, targetUnits)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [log.batchId, log.productNameHindi, log.productNameEnglish, log.line, log.unitsProduced, log.status, log.timestamp, log.targetUnits]
+    `INSERT INTO batch_logs (batchId, productNameHindi, productNameEnglish, line, unitsProduced, status, timestamp, targetUnits, feedbackQuality, feedbackTexture, feedbackNotes, feedbackRating)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [batchId, productNameHindi, productNameEnglish, line, unitsProduced, status, log.timestamp || Date.now(), targetUnits, feedbackQuality, feedbackTexture, feedbackNotes, feedbackRating]
   );
 
-  if (log.status !== 'Success') {
-    return true; // No inventory/order changes on failure logs
+  if (status !== 'Success') {
+    return { success: true, status: 'failed_logged' }; // No inventory/order changes on failure logs
   }
 
   // 3. Find matching product formulas
   const product = await get(
-    'SELECT * FROM products WHERE englishName = ? OR name = ?',
-    [log.productNameEnglish, log.productNameHindi]
+    'SELECT * FROM products WHERE englishName = ? OR name = ? OR id = ?',
+    [productNameEnglish, productNameHindi, log.recipeId || log.productKey || '']
   );
 
+  const isGrinderStage = log.stage === 'grinder' || log.isGrinderStage || (log.stationId && log.stationId.toLowerCase().includes('grind'));
+
+  // If this log is from the Grinder station (Stage 1), deduct only grinder raw materials (e.g. Maize) and record pipeline transfer
+  if (isGrinderStage) {
+    if (product) {
+      const ratios = JSON.parse(product.mixtureRatios || '[]');
+      const grindIngredients = ratios.filter(r => r.stage === 'grinder' || r.requiresGrinding);
+      for (const ing of grindIngredients) {
+        await run(
+          'UPDATE inventory SET stock = MAX(0, stock - ?), lastUpdated = ? WHERE itemId = ?',
+          [ing.percentage, Date.now(), ing.ingredientId]
+        );
+      }
+    }
+    return { success: true, stage: 'grinder' };
+  }
+
   if (product) {
-    const batchSizeKg = log.unitsProduced || 600; // default nominal weight is mapped from unitsProduced or 600
     const ratios = JSON.parse(product.mixtureRatios || '[]');
 
-    // Deduct raw ingredients (percentage represents direct kgs weight)
+    // Deduct ingredients: Mixer stage skips raw grains already ground and transferred via pipeline
     for (const ing of ratios) {
+      const isGrind = ing.stage === 'grinder' || ing.requiresGrinding;
+      if (isGrind) continue; // raw grain was deducted at grinder stage
       const amountDeducted = ing.percentage;
       await run(
         'UPDATE inventory SET stock = MAX(0, stock - ?), lastUpdated = ? WHERE itemId = ?',
@@ -508,15 +612,14 @@ async function processBatchLogDeductions(log) {
     );
   }
 
-  // 4. Update the active order's completed batch count
-  const activeOrder = await get(
-    "SELECT * FROM orders WHERE (productNameEnglish = ? OR productNameHindi = ?) AND status = 'ACTIVE' LIMIT 1",
-    [log.productNameEnglish, log.productNameHindi]
-  );
+  // 4. Update the active order's completed batch count or specific orderId
+  const activeOrder = log.orderId 
+    ? await get("SELECT * FROM orders WHERE id = ?", [log.orderId])
+    : await get("SELECT * FROM orders WHERE (productNameEnglish = ? OR productNameHindi = ?) AND status = 'ACTIVE' LIMIT 1", [productNameEnglish, productNameHindi]);
 
   if (activeOrder) {
-    const newCompleted = activeOrder.completedBatches + 1;
-    let newStatus = 'ACTIVE';
+    const newCompleted = (activeOrder.completedBatches || 0) + 1;
+    let newStatus = activeOrder.status;
     if (newCompleted >= activeOrder.totalBatchesScheduled) {
       newStatus = 'COMPLETED';
     }
@@ -533,7 +636,7 @@ async function processBatchLogDeductions(log) {
     }
   }
 
-  return true;
+  return { success: true, stage: 'mixer' };
 }
 
 // 5. Batch logs endpoints
@@ -548,8 +651,13 @@ app.get('/api/logs', async (req, res) => {
 
 app.post('/api/logs', authenticateToken, async (req, res) => {
   try {
-    const success = await processBatchLogDeductions(req.body);
-    res.json({ success });
+    const logData = { ...req.body, stationType: req.body.stage || req.stationType };
+    const result = await processBatchLogDeductions(logData);
+    if (result && typeof result === 'object') {
+      res.json(result);
+    } else {
+      res.json({ success: !!result });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

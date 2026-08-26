@@ -30,11 +30,12 @@ import kotlinx.coroutines.delay
 
 fun getIngredientDisplayName(id: String): String {
     return when (id) {
-        "wheat_flour" -> "Wheat Flour (गेंहू का आटा)"
-        "refined_sugar" -> "Refined Sugar (चीनी)"
-        "vegetable_fats" -> "Vegetable Fats (वनस्पति वसा)"
-        "flavor_agents" -> "Flavor Agents (स्वाद एजेंट)"
-        "premium_additive" -> "Premium Additive (प्रीमियम एडिटिव)"
+        "ING-006", "raw_maize", "maize" -> "Raw Maize (साबुत मक्का)"
+        "ING-001", "wheat_flour" -> "Wheat Flour (गेंहू का आटा)"
+        "ING-002", "refined_sugar" -> "Refined Sugar (चीनी)"
+        "ING-003", "vegetable_fats" -> "Vegetable Fats (वनस्पति वसा)"
+        "ING-004", "flavor_agents", "cream_flavoring" -> "Cream Flavoring (क्रीम फ्लेवर)"
+        "ING-005", "premium_additive" -> "Premium Additive (प्रीमियम एडिटिव)"
         else -> id.replace("_", " ").split(" ").joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
     }
 }
@@ -53,6 +54,8 @@ fun WorkerTimerScreen(
     val activeProductNameHindi by viewModel.activeProductNameHindi.collectAsState()
     val activeProductNameEnglish by viewModel.activeProductNameEnglish.collectAsState()
     val activeProductColorHex by viewModel.activeProductColorHex.collectAsState()
+    val stationType by viewModel.stationType.collectAsState()
+    val isGrinder = stationType == "grinder"
     
     val ordersQueue by viewModel.ordersQueue.collectAsState()
     val isOnBreak by viewModel.isOnBreak.collectAsState()
@@ -65,26 +68,39 @@ fun WorkerTimerScreen(
         products.find { it.englishName.equals(activeProductNameEnglish, ignoreCase = true) }
     }
 
-    val cardColor = remember(activeProductColorHex) {
-        try {
-            Color(android.graphics.Color.parseColor(activeProductColorHex))
-        } catch (e: Exception) {
-            Color(0xFF00875A)
+    val cardColor = remember(activeProductColorHex, isGrinder) {
+        if (isGrinder) {
+            Color(0xFFD97706) // Industrial Amber for Grinder
+        } else {
+            try {
+                Color(android.graphics.Color.parseColor(activeProductColorHex))
+            } catch (e: Exception) {
+                Color(0xFF00875A) // Industrial Emerald for Mixer
+            }
         }
     }
 
-    val totalBatchWeight = remember(activeProduct) {
+    val totalBatchWeight = remember(activeProduct, isGrinder) {
         var sum = 0.0
         if (activeProduct != null && !activeProduct.mixtureRatios.isNullOrBlank()) {
             try {
                 val jsonArray = org.json.JSONArray(activeProduct.mixtureRatios)
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
-                    sum += obj.optDouble("percentage", 0.0)
+                    val ingId = obj.optString("ingredientId")
+                    val isGrindIng = obj.optString("stage") == "grinder" || obj.optBoolean("requiresGrinding", false) || ingId.contains("006") || ingId.contains("maize", ignoreCase = true)
+                    val qty = obj.optDouble("percentage", 0.0)
+                    if (isGrinder) {
+                        if (isGrindIng) sum += qty
+                    } else {
+                        sum += qty
+                    }
                 }
             } catch (e: Exception) {}
         }
-        if (sum == 0.0) 600.0 else sum
+        if (sum == 0.0) {
+            if (isGrinder) 120.0 else 600.0
+        } else sum
     }
 
     val nominalDuration = remember(activeProduct) {
@@ -99,7 +115,7 @@ fun WorkerTimerScreen(
         (totalBatchWeight * 3600.0) / nominalDuration
     }
 
-    val ingredientsList = remember(activeProduct, activeProductNameEnglish) {
+    val ingredientsList = remember(activeProduct, activeProductNameEnglish, isGrinder) {
         val list = mutableListOf<String>()
         if (activeProduct != null && !activeProduct.mixtureRatios.isNullOrBlank()) {
             try {
@@ -107,20 +123,42 @@ fun WorkerTimerScreen(
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
                     val ingId = obj.optString("ingredientId")
+                    val isGrindIng = obj.optString("stage") == "grinder" || obj.optBoolean("requiresGrinding", false) || ingId.contains("006") || ingId.contains("maize", ignoreCase = true)
                     val qty = obj.optDouble("percentage", 0.0)
                     if (qty > 0) {
-                        list.add("${getIngredientDisplayName(ingId)}: ${qty.toInt()} kg")
+                        if (isGrinder) {
+                            // Grinder ONLY shows materials that need to be ground
+                            if (isGrindIng) {
+                                list.add("${getIngredientDisplayName(ingId)}: ${qty.toInt()} kg [GRIND TO FINE POWDER]")
+                            }
+                        } else {
+                            // Mixer shows materials to mix, labeling ground materials from pipeline
+                            if (isGrindIng) {
+                                list.add("Ground Maize Powder (पिसा हुआ मक्का): ${qty.toInt()} kg [FROM PIPELINE]")
+                            } else {
+                                list.add("${getIngredientDisplayName(ingId)}: ${qty.toInt()} kg [MIX]")
+                            }
+                        }
                     }
                 }
             } catch (e: Exception) {}
         }
         if (list.isEmpty()) {
-            list.addAll(getIngredientsForProduct(activeProductNameEnglish))
+            if (isGrinder) {
+                list.add("Raw Maize (साबुत मक्का): 120 kg [GRIND TO FINE POWDER]")
+            } else {
+                list.add("Ground Maize Powder (पिसा हुआ मक्का): 120 kg [FROM PIPELINE]")
+                list.addAll(getIngredientsForProduct(activeProductNameEnglish))
+            }
         }
         list
     }
 
     var showSuccessFlash by remember { mutableStateOf(false) }
+    var showMixerFeedbackDialog by remember { mutableStateOf(false) }
+    var selectedTexture by remember { mutableStateOf("Smooth Homogeneous") }
+    var selectedRating by remember { mutableStateOf(5) }
+    var feedbackNotes by remember { mutableStateOf("मिश्रण सही बना, मक्का अच्छी तरह घुल गया") }
 
     val formattedTime = remember(remainingSec) {
         val minutes = remainingSec / 60
@@ -152,11 +190,11 @@ fun WorkerTimerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "BATCH TERMINAL",
+                            text = if (isGrinder) "1. GRINDER TERMINAL (पिसाई)" else "2. MIXER TERMINAL (मिश्रण)",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
-                            color = Color(0xFF1A1A1A).copy(alpha = 0.6f)
+                            color = if (isGrinder) Color(0xFFD97706) else Color(0xFF00875A)
                         )
                         Text(
                             text = batchId,
@@ -200,7 +238,7 @@ fun WorkerTimerScreen(
                                 fontFamily = FontFamily.SansSerif
                             )
                             Text(
-                                text = "ACTIVE: ${activeProductNameEnglish.uppercase()}",
+                                text = "ACTIVE: ${activeProductNameEnglish.uppercase()} [${if (isGrinder) "STAGE 1: GRIND" else "STAGE 2: MIX"}]",
                                 color = Color.White.copy(alpha = 0.8f),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
@@ -210,7 +248,7 @@ fun WorkerTimerScreen(
 
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "सामग्री अनुपात (INGREDIENTS):",
+                                text = if (isGrinder) "पिसाई के लिए सामग्री (MATERIALS TO GRIND):" else "मिश्रण के लिए सामग्री (MATERIALS TO MIX):",
                                 color = Color.White.copy(alpha = 0.9f),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
@@ -510,77 +548,158 @@ fun WorkerTimerScreen(
                     }
                 } else {
                     // ── ACTIVE BATCH STATE ─────────────────────────────────────
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(top = 8.dp)
-                    ) {
-                        Text(
-                            text = "वर्तमान बैच चल रहा है...",
-                            color = Color.Black,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Black,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "पूरा होने पर दाईं ओर स्वाइप करें।",
-                            color = Color(0xFF1A1A1A).copy(alpha = 0.7f),
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
-                    }
+                    if (isGrinder) {
+                        // GRINDER VIEW: OPERATOR ONLY SEES LIST WHAT TO DO AND ALL
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "पिसाई कार्य सूची (WHAT TO DO — CHECKLIST)",
+                                color = Color(0xFFB45309),
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                            Text(
+                                text = "नीचे दिए गए चरणों का पालन करें और पिसे हुए मक्के को पाइपलाइन में भेजें:",
+                                color = Color(0xFF1A1A1A).copy(alpha = 0.7f),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
 
-                    // Dynamic Progress Countdown Ticker Ring (MM:SS)
-                    Box(
-                        modifier = Modifier.size(240.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val progressRatio = (remainingSec.toFloat() / nominalDuration.toFloat()).coerceIn(0f, 1f)
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            drawCircle(
-                                color = Color.White,
-                                radius = size.minDimension / 2 - 8.dp.toPx()
+                            // 4 Clear Tasks
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFFFFBEB))
+                                    .border(2.dp, Color(0xFFD97706))
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "1. लोड: 120 kg साबुत मक्का (ING-006) हॉपर में डालें",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.Black
+                                )
+                                Text(
+                                    text = "2. ग्राइंडर चालू: हैमर मिल रोटर 1,480 RPM पर स्थिर करें",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.Black
+                                )
+                                Text(
+                                    text = "3. छलनी जांच: मक्का < 200 माइक्रोन बारीक पाउडर में पिसना चाहिए",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.Black
+                                )
+                                Text(
+                                    text = "4. पाइपलाइन ट्रांसफर: ब्लोअर वाल्व खोलकर मक्का मिक्सर को भेजें",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.Black
+                                )
+                            }
+
+                            // Notice: No feedback needed at grinder
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFFEF3C7))
+                                    .border(1.dp, Color(0xFFF59E0B))
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    text = "★ सूचना: ग्राइंडर पर कोई फीडबैक फॉर्म नहीं भरना है। केवल ऊपर दी गई सूची पूरी करें। गुणवत्ता फीडबैक मिक्सर ऑपरेटर द्वारा दिया जाएगा।",
+                                    color = Color(0xFF92400E),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    } else {
+                        // MIXER VIEW: COMPOUND BLENDING WITH COUNTDOWN & FEEDBACK REQUIREMENT
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(top = 8.dp)
+                        ) {
+                            Text(
+                                text = "मिश्रण बैच चल रहा है...",
+                                color = Color.Black,
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Black,
+                                textAlign = TextAlign.Center
                             )
-                            drawArc(
-                                color = Color(0xFFD8DADC),
-                                startAngle = 0f,
-                                sweepAngle = 360f,
-                                useCenter = false,
-                                style = Stroke(width = 14.dp.toPx(), cap = StrokeCap.Butt)
-                            )
-                            drawArc(
-                                color = Color(0xFF1A1A1A),
-                                startAngle = -90f,
-                                sweepAngle = 360f * progressRatio,
-                                useCenter = false,
-                                style = Stroke(width = 14.dp.toPx(), cap = StrokeCap.Butt)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "पूरा होने पर स्वाइप करके गुणवत्ता फीडबैक दर्ज करें।",
+                                color = Color(0xFF00875A),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
                             )
                         }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = formattedTime,
-                                color = Color.Black,
-                                fontSize = 52.sp,
-                                fontWeight = FontWeight.Black,
-                                fontFamily = FontFamily.Monospace,
-                                letterSpacing = (-1).sp
-                            )
-                            Text(
-                                text = "समय शेष (REMAINING)",
-                                color = Color(0xFF1A1A1A).copy(alpha = 0.6f),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+
+                        // Dynamic Progress Countdown Ticker Ring (MM:SS)
+                        Box(
+                            modifier = Modifier.size(200.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val progressRatio = (remainingSec.toFloat() / nominalDuration.toFloat()).coerceIn(0f, 1f)
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                drawCircle(
+                                    color = Color.White,
+                                    radius = size.minDimension / 2 - 8.dp.toPx()
+                                )
+                                drawArc(
+                                    color = Color(0xFFD8DADC),
+                                    startAngle = 0f,
+                                    sweepAngle = 360f,
+                                    useCenter = false,
+                                    style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Butt)
+                                )
+                                drawArc(
+                                    color = Color(0xFF00875A),
+                                    startAngle = -90f,
+                                    sweepAngle = 360f * progressRatio,
+                                    useCenter = false,
+                                    style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Butt)
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = formattedTime,
+                                    color = Color.Black,
+                                    fontSize = 44.sp,
+                                    fontWeight = FontWeight.Black,
+                                    fontFamily = FontFamily.Monospace,
+                                    letterSpacing = (-1).sp
+                                )
+                                Text(
+                                    text = "समय शेष (REMAINING)",
+                                    color = Color(0xFF1A1A1A).copy(alpha = 0.6f),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
 
                     SwipeToConfirmSlider(
-                        text = "बैच पूरा करने के लिए दाईं ओर स्वाइप करें",
-                        successText = "बैच पूरा / BATCH CONFIRMED",
+                        text = if (isGrinder) "मक्का पीसकर पाइपलाइन में भेजें (SEND TO PIPELINE)" else "फीडबैक दर्ज कर बैच पूरा करें (SWIPE FOR FEEDBACK)",
+                        successText = if (isGrinder) "पिसाई पूरी - पाइपलाइन में भेजा गया" else "फीडबैक आवश्यक / FEEDBACK REQUIRED",
                         onConfirm = {
-                            viewModel.completeActiveBatch()
-                            showSuccessFlash = true
+                            if (isGrinder) {
+                                viewModel.completeActiveBatch()
+                                showSuccessFlash = true
+                            } else {
+                                showMixerFeedbackDialog = true
+                            }
                         }
                     )
                 }
@@ -596,7 +715,7 @@ fun WorkerTimerScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFF00875A).copy(alpha = 0.95f))
+                    .background((if (isGrinder) Color(0xFFD97706) else Color(0xFF00875A)).copy(alpha = 0.95f))
                     .border(4.dp, Color(0xFF1A1A1A)),
                 contentAlignment = Alignment.Center
             ) {
@@ -610,21 +729,21 @@ fun WorkerTimerScreen(
                     ) {
                         Text(
                             text = "✔",
-                            color = Color(0xFF00875A),
+                            color = if (isGrinder) Color(0xFFD97706) else Color(0xFF00875A),
                             fontSize = 64.sp,
                             fontWeight = FontWeight.Black
                         )
                     }
                     Spacer(modifier = Modifier.height(20.dp))
                     Text(
-                        text = "बैच दर्ज किया गया!",
+                        text = if (isGrinder) "पिसाई पूरी! पाइपलाइन में भेजा गया" else "बैच दर्ज किया गया!",
                         color = Color.White,
-                        fontSize = 36.sp,
+                        fontSize = 32.sp,
                         fontWeight = FontWeight.Black,
                         fontFamily = FontFamily.SansSerif
                     )
                     Text(
-                        text = "BATCH REGISTERED SUCCESSFULLY!",
+                        text = if (isGrinder) "MAIZE PULVERIZED & TRANSFERRED TO PIPELINE" else "BATCH REGISTERED SUCCESSFULLY!",
                         color = Color.White.copy(alpha = 0.8f),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
@@ -713,6 +832,100 @@ fun WorkerTimerScreen(
                     }
                 }
             }
+        }
+
+        // Mixer Operator Feedback Dialog Modal
+        if (showMixerFeedbackDialog) {
+            AlertDialog(
+                onDismissRequest = { showMixerFeedbackDialog = false },
+                title = {
+                    Column {
+                        Text(
+                            text = "मिक्सर ऑपरेटर फीडबैक",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color(0xFF00875A)
+                        )
+                        Text(
+                            text = "STAGE 2 COMPOUND QUALITY SIGN-OFF",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = Color.Gray
+                        )
+                    }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "1. मिश्रण की बनावट (Texture & Consistency):",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf("Smooth", "Grainy", "Too Dry", "Too Wet").forEach { tex ->
+                                FilterChip(
+                                    selected = selectedTexture.contains(tex),
+                                    onClick = { selectedTexture = tex },
+                                    label = { Text(tex, fontSize = 10.sp) }
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "2. गुणवत्ता रेटिंग (Rating): $selectedRating / 5 ★",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            (1..5).forEach { star ->
+                                TextButton(onClick = { selectedRating = star }) {
+                                    Text(
+                                        text = if (star <= selectedRating) "★" else "☆",
+                                        fontSize = 22.sp,
+                                        color = if (star <= selectedRating) Color(0xFFFFB300) else Color.Gray
+                                    )
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = "3. ऑपरेटर टिप्पणियां (Remarks):",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        OutlinedTextField(
+                            value = feedbackNotes,
+                            onValueChange = { feedbackNotes = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showMixerFeedbackDialog = false
+                            viewModel.completeActiveBatch()
+                            showSuccessFlash = true
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00875A))
+                    ) {
+                        Text("फीडबैक दर्ज कर बैच पूरा करें (SUBMIT)")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showMixerFeedbackDialog = false }) {
+                        Text("रद्द करें (CANCEL)")
+                    }
+                }
+            )
         }
     }
 }

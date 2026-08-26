@@ -91,9 +91,10 @@ fun QRScannerView(
                                                     val url = json.optString("url")
                                                     val token = json.optString("token")
                                                     val station = json.optString("station")
+                                                    val stationType = json.optString("stationType")
                                                     if (url.isNotBlank() && token.isNotBlank() && station.isNotBlank()) {
                                                         isScanningActive = false
-                                                        PreferencesManager.savePairing(context, url, token, station)
+                                                        PreferencesManager.savePairing(context, url, token, station, stationType)
                                                         onPairingSuccess(station, token, url)
                                                         break
                                                     }

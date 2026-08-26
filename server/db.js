@@ -65,6 +65,8 @@ export async function initDb() {
       stock REAL DEFAULT 0.0,
       unit TEXT DEFAULT 'kg',
       minStock REAL DEFAULT 0.0,
+      requiresGrinding INTEGER DEFAULT 0,
+      stage TEXT DEFAULT 'mixer',
       lastUpdated INTEGER
     )
   `);
@@ -93,7 +95,11 @@ export async function initDb() {
       unitsProduced INTEGER,
       status TEXT,
       timestamp INTEGER,
-      targetUnits INTEGER
+      targetUnits INTEGER,
+      feedbackQuality TEXT,
+      feedbackTexture TEXT,
+      feedbackNotes TEXT,
+      feedbackRating INTEGER DEFAULT 5
     )
   `);
 
@@ -101,6 +107,7 @@ export async function initDb() {
     CREATE TABLE IF NOT EXISTS station_tokens (
       token TEXT PRIMARY KEY,
       stationId TEXT NOT NULL,
+      stationType TEXT DEFAULT 'mixer',
       issuedAt INTEGER,
       expiresAt INTEGER,
       isOnBreak INTEGER DEFAULT 0,
@@ -119,6 +126,12 @@ export async function initDb() {
     await run(`ALTER TABLE inventory ADD COLUMN minStock REAL DEFAULT 0.0`);
   } catch (e) {}
   try {
+    await run(`ALTER TABLE inventory ADD COLUMN requiresGrinding INTEGER DEFAULT 0`);
+  } catch (e) {}
+  try {
+    await run(`ALTER TABLE inventory ADD COLUMN stage TEXT DEFAULT 'mixer'`);
+  } catch (e) {}
+  try {
     await run(`ALTER TABLE orders ADD COLUMN queueOrder INTEGER DEFAULT 0`);
   } catch (e) {}
   try {
@@ -127,6 +140,71 @@ export async function initDb() {
   try {
     await run(`ALTER TABLE station_tokens ADD COLUMN breakStartedAt INTEGER DEFAULT 0`);
   } catch (e) {}
+  try {
+    await run(`ALTER TABLE station_tokens ADD COLUMN stationType TEXT DEFAULT 'mixer'`);
+  } catch (e) {}
+  try {
+    await run(`ALTER TABLE batch_logs ADD COLUMN feedbackQuality TEXT`);
+  } catch (e) {}
+  try {
+    await run(`ALTER TABLE batch_logs ADD COLUMN feedbackTexture TEXT`);
+  } catch (e) {}
+  try {
+    await run(`ALTER TABLE batch_logs ADD COLUMN feedbackNotes TEXT`);
+  } catch (e) {}
+  try {
+    await run(`ALTER TABLE batch_logs ADD COLUMN feedbackRating INTEGER DEFAULT 5`);
+  } catch (e) {}
+
+  // Auto-migrate: ensure Maize (ING-006) exists in inventory
+  const maizeItem = await get(`SELECT * FROM inventory WHERE itemId = 'ING-006'`);
+  if (!maizeItem) {
+    await run(
+      `INSERT INTO inventory (itemId, name, hindiName, type, stock, unit, minStock, requiresGrinding, stage, lastUpdated)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['ING-006', 'Raw Maize (Corn)', 'साबुत मक्का', 'raw_material', 8500, 'kg', 1500, 1, 'grinder', Date.now()]
+    );
+  }
+
+  // Auto-migrate: ensure Grinder and Mixer station tokens exist
+  const grinderToken = await get(`SELECT * FROM station_tokens WHERE stationId = 'GRINDER-01'`);
+  if (!grinderToken) {
+    await run(
+      `INSERT INTO station_tokens (token, stationId, stationType, issuedAt, expiresAt) VALUES (?, ?, ?, ?, ?)`,
+      ['TOKEN-GRINDER-STATION', 'GRINDER-01', 'grinder', Date.now(), Date.now() + 100 * 365 * 24 * 60 * 60 * 1000]
+    );
+  }
+  const mixerToken = await get(`SELECT * FROM station_tokens WHERE stationId = 'MIXER-01'`);
+  if (!mixerToken) {
+    await run(
+      `INSERT INTO station_tokens (token, stationId, stationType, issuedAt, expiresAt) VALUES (?, ?, ?, ?, ?)`,
+      ['TOKEN-MIXER-STATION', 'MIXER-01', 'mixer', Date.now(), Date.now() + 100 * 365 * 24 * 60 * 60 * 1000]
+    );
+  }
+
+  // Update existing products with maize grinding ratios if they don't have ING-006 yet
+  const prd1 = await get(`SELECT * FROM products WHERE id = 'PRD-001'`);
+  if (prd1 && !prd1.mixtureRatios.includes('ING-006')) {
+    const updatedRatios1 = JSON.stringify([
+      { ingredientId: "ING-006", percentage: 120, stage: "grinder", requiresGrinding: true },
+      { ingredientId: "ING-001", percentage: 200, stage: "mixer", requiresGrinding: false },
+      { ingredientId: "ING-002", percentage: 150, stage: "mixer", requiresGrinding: false },
+      { ingredientId: "ING-003", percentage: 80, stage: "mixer", requiresGrinding: false },
+      { ingredientId: "ING-004", percentage: 50, stage: "mixer", requiresGrinding: false }
+    ]);
+    await run(`UPDATE products SET mixtureRatios = ? WHERE id = 'PRD-001'`, [updatedRatios1]);
+  }
+  const prd2 = await get(`SELECT * FROM products WHERE id = 'PRD-002'`);
+  if (prd2 && !prd2.mixtureRatios.includes('ING-006')) {
+    const updatedRatios2 = JSON.stringify([
+      { ingredientId: "ING-006", percentage: 150, stage: "grinder", requiresGrinding: true },
+      { ingredientId: "ING-001", percentage: 180, stage: "mixer", requiresGrinding: false },
+      { ingredientId: "ING-002", percentage: 150, stage: "mixer", requiresGrinding: false },
+      { ingredientId: "ING-003", percentage: 70, stage: "mixer", requiresGrinding: false },
+      { ingredientId: "ING-005", percentage: 50, stage: "mixer", requiresGrinding: false }
+    ]);
+    await run(`UPDATE products SET mixtureRatios = ? WHERE id = 'PRD-002'`, [updatedRatios2]);
+  }
 
   // Seed baseline data if empty
   const prodCount = await get(`SELECT COUNT(*) as count FROM products`);
@@ -144,11 +222,19 @@ export async function seedData() {
   await run(`DELETE FROM station_tokens`);
 
   await run(
-    `INSERT INTO station_tokens (token, stationId, issuedAt, expiresAt) VALUES (?, ?, ?, ?)`,
-    ['DASHBOARD-DEV-TOKEN', 'WEB-DASHBOARD', Date.now(), Date.now() + 365 * 24 * 60 * 60 * 1000]
+    `INSERT INTO station_tokens (token, stationId, stationType, issuedAt, expiresAt) VALUES (?, ?, ?, ?, ?)`,
+    ['TOKEN-GRINDER-STATION', 'GRINDER-01', 'grinder', Date.now(), Date.now() + 100 * 365 * 24 * 60 * 60 * 1000]
+  );
+  await run(
+    `INSERT INTO station_tokens (token, stationId, stationType, issuedAt, expiresAt) VALUES (?, ?, ?, ?, ?)`,
+    ['TOKEN-MIXER-STATION', 'MIXER-01', 'mixer', Date.now(), Date.now() + 100 * 365 * 24 * 60 * 60 * 1000]
+  );
+  await run(
+    `INSERT INTO station_tokens (token, stationId, stationType, issuedAt, expiresAt) VALUES (?, ?, ?, ?, ?)`,
+    ['DASHBOARD-DEV-TOKEN', 'WEB-DASHBOARD', 'mixer', Date.now(), Date.now() + 365 * 24 * 60 * 60 * 1000]
   );
 
-  // Seed Products
+  // Seed Products with Stage 1 (Grinder) and Stage 2 (Mixer) mixture formulas
   const initialProducts = [
     {
       id: "PRD-001",
@@ -160,10 +246,11 @@ export async function seedData() {
       manualFileName: "Cream_Special_Ops_v2.pdf",
       nominalBatchDurationSec: 480,
       mixtureRatios: JSON.stringify([
-        { ingredientId: "ING-001", percentage: 40 },
-        { ingredientId: "ING-002", percentage: 35 },
-        { ingredientId: "ING-003", percentage: 15 },
-        { ingredientId: "ING-004", percentage: 10 }
+        { ingredientId: "ING-006", percentage: 120, stage: "grinder", requiresGrinding: true },
+        { ingredientId: "ING-001", percentage: 200, stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-002", percentage: 150, stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-003", percentage: 80, stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-004", percentage: 50, stage: "mixer", requiresGrinding: false }
       ])
     },
     {
@@ -176,10 +263,11 @@ export async function seedData() {
       manualFileName: "Premium_Plus_Standard_v4.pdf",
       nominalBatchDurationSec: 600,
       mixtureRatios: JSON.stringify([
-        { ingredientId: "ING-001", percentage: 30 },
-        { ingredientId: "ING-002", percentage: 45 },
-        { ingredientId: "ING-003", percentage: 15 },
-        { ingredientId: "ING-005", percentage: 10 }
+        { ingredientId: "ING-006", percentage: 150, stage: "grinder", requiresGrinding: true },
+        { ingredientId: "ING-001", percentage: 180, stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-002", percentage: 150, stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-003", percentage: 70, stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-005", percentage: 50, stage: "mixer", requiresGrinding: false }
       ])
     }
   ];
@@ -192,22 +280,23 @@ export async function seedData() {
     );
   }
 
-  // Seed Inventory
+  // Seed Inventory including Maize (requiresGrinding: 1, stage: 'grinder')
   const initialInventory = [
-    { itemId: "ING-001", name: "Wheat Flour", hindiName: "गेंहू का आटा", type: "raw_material", stock: 12500, unit: "kg", minStock: 2000 },
-    { itemId: "ING-002", name: "Refined Sugar", hindiName: "चीनी", type: "raw_material", stock: 5400, unit: "kg", minStock: 1000 },
-    { itemId: "ING-003", name: "Vegetable Fats", hindiName: "वनस्पति वसा", type: "raw_material", stock: 3200, unit: "kg", minStock: 800 },
-    { itemId: "ING-004", name: "Cream Flavoring", hindiName: "क्रीम फ्लेवर", type: "raw_material", stock: 650, unit: "kg", minStock: 150 },
-    { itemId: "ING-005", name: "Premium Additive", hindiName: "प्रीमियम एडिटिव", type: "raw_material", stock: 450, unit: "kg", minStock: 100 },
-    { itemId: "FIN-001", name: "Cream Special", hindiName: "क्रीम स्पेशल", type: "finished_good", stock: 4, unit: "batches", minStock: 2 },
-    { itemId: "FIN-002", name: "Premium Plus", hindiName: "प्रीमियम प्लस", type: "finished_good", stock: 2, unit: "batches", minStock: 1 },
-    { itemId: "FIN-003", name: "Standard Blend", hindiName: "मानक मिश्रण", type: "finished_good", stock: 0, unit: "batches", minStock: 1 }
+    { itemId: "ING-006", name: "Raw Maize (Corn)", hindiName: "साबुत मक्का", type: "raw_material", stock: 8500, unit: "kg", minStock: 1500, requiresGrinding: 1, stage: "grinder" },
+    { itemId: "ING-001", name: "Wheat Flour", hindiName: "गेंहू का आटा", type: "raw_material", stock: 12500, unit: "kg", minStock: 2000, requiresGrinding: 0, stage: "mixer" },
+    { itemId: "ING-002", name: "Refined Sugar", hindiName: "चीनी", type: "raw_material", stock: 5400, unit: "kg", minStock: 1000, requiresGrinding: 0, stage: "mixer" },
+    { itemId: "ING-003", name: "Vegetable Fats", hindiName: "वनस्पति वसा", type: "raw_material", stock: 3200, unit: "kg", minStock: 800, requiresGrinding: 0, stage: "mixer" },
+    { itemId: "ING-004", name: "Cream Flavoring", hindiName: "क्रीम फ्लेवर", type: "raw_material", stock: 650, unit: "kg", minStock: 150, requiresGrinding: 0, stage: "mixer" },
+    { itemId: "ING-005", name: "Premium Additive", hindiName: "प्रीमियम एडिटिव", type: "raw_material", stock: 450, unit: "kg", minStock: 100, requiresGrinding: 0, stage: "mixer" },
+    { itemId: "FIN-001", name: "Cream Special", hindiName: "क्रीम स्पेशल", type: "finished_good", stock: 4, unit: "batches", minStock: 2, requiresGrinding: 0, stage: "mixer" },
+    { itemId: "FIN-002", name: "Premium Plus", hindiName: "प्रीमियम प्लस", type: "finished_good", stock: 2, unit: "batches", minStock: 1, requiresGrinding: 0, stage: "mixer" },
+    { itemId: "FIN-003", name: "Standard Blend", hindiName: "मानक मिश्रण", type: "finished_good", stock: 0, unit: "batches", minStock: 1, requiresGrinding: 0, stage: "mixer" }
   ];
 
   for (const i of initialInventory) {
     await run(
-      `INSERT INTO inventory (itemId, name, hindiName, type, stock, unit, minStock, lastUpdated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [i.itemId, i.name, i.hindiName, i.type, i.stock, i.unit, i.minStock, Date.now()]
+      `INSERT INTO inventory (itemId, name, hindiName, type, stock, unit, minStock, requiresGrinding, stage, lastUpdated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [i.itemId, i.name, i.hindiName, i.type, i.stock, i.unit, i.minStock, i.requiresGrinding || 0, i.stage || 'mixer', Date.now()]
     );
   }
 

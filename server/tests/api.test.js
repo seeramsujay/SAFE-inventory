@@ -60,22 +60,28 @@ before(async () => {
   });
 
   app.post('/api/auth/token', async (req, res) => {
-    const { stationId } = req.body;
+    const { stationId, stationType } = req.body;
     if (!stationId) return res.status(400).json({ error: 'stationId is required' });
+    const finalStationType = stationType || (stationId.toLowerCase().includes('grind') ? 'grinder' : 'mixer');
     const token = 'TOKEN-' + Math.random().toString(36).substring(2, 10).toUpperCase();
     const expiresAt = Date.now() + 100 * 365 * 24 * 60 * 60 * 1000;
-    await run('INSERT INTO station_tokens (token, stationId, issuedAt, expiresAt) VALUES (?, ?, ?, ?)', [token, stationId, Date.now(), expiresAt]);
-    res.json({ token, stationId, expiresAt });
+    await run('INSERT INTO station_tokens (token, stationId, stationType, issuedAt, expiresAt) VALUES (?, ?, ?, ?, ?)', [token, stationId, finalStationType, Date.now(), expiresAt]);
+    res.json({ token, stationId, stationType: finalStationType, expiresAt });
   });
 
   app.get('/api/auth/validate', async (req, res) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     if (!token) return res.json({ valid: false, reason: 'no_token' });
-    if (token === MASTER_KEY) return res.json({ valid: true, stationId: req.headers['x-station-id'] || 'KIOSK-01' });
+    if (token === MASTER_KEY) {
+      const sId = req.headers['x-station-id'] || 'KIOSK-01';
+      const sType = req.headers['x-station-type'] || (sId.toLowerCase().includes('grind') ? 'grinder' : 'mixer');
+      return res.json({ valid: true, stationId: sId, stationType: sType });
+    }
     const validToken = await get('SELECT * FROM station_tokens WHERE token = ?', [token]);
     if (!validToken) return res.json({ valid: false, reason: 'unknown_token' });
-    res.json({ valid: true, stationId: validToken.stationId });
+    const stationType = validToken.stationType || (validToken.stationId?.toLowerCase().includes('grind') ? 'grinder' : 'mixer');
+    res.json({ valid: true, stationId: validToken.stationId, stationType });
   });
 
   app.post('/api/stations/break', authenticateToken, async (req, res) => {
@@ -257,7 +263,30 @@ describe('Industrial Nexus Backend API Integration Tests', () => {
     assert.equal(valBody.valid, true);
     assert.equal(valBody.stationId, 'STATION-ALPHA');
 
-    // 3. Validate master API key
+    // 3. Issue Grinder and Mixer station tokens
+    const grinderRes = await fetch(`${baseUrl}/api/auth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stationId: 'GRINDER-01', stationType: 'grinder' })
+    });
+    const grinderBody = await grinderRes.json();
+    assert.equal(grinderBody.stationType, 'grinder');
+
+    const grinderVal = await fetch(`${baseUrl}/api/auth/validate`, {
+      headers: { 'Authorization': `Bearer ${grinderBody.token}` }
+    });
+    const grinderValBody = await grinderVal.json();
+    assert.equal(grinderValBody.stationType, 'grinder');
+
+    const mixerRes = await fetch(`${baseUrl}/api/auth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stationId: 'MIXER-01', stationType: 'mixer' })
+    });
+    const mixerBody = await mixerRes.json();
+    assert.equal(mixerBody.stationType, 'mixer');
+
+    // 4. Validate master API key
     const masterValRes = await fetch(`${baseUrl}/api/auth/validate`, {
       headers: { 
         'Authorization': `Bearer ${MASTER_KEY}`,

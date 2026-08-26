@@ -10,6 +10,7 @@ object PreferencesManager {
     private const val KEY_SERVER_URL = "server_url"
     private const val KEY_STATION_TOKEN = "station_token"
     private const val KEY_STATION_ID = "station_id"
+    private const val KEY_STATION_TYPE = "station_type"
 
     private const val KEY_IS_ON_BREAK = "is_on_break"
     private const val KEY_BREAK_START_TIME = "break_start_time"
@@ -29,14 +30,23 @@ object PreferencesManager {
         }
     }
 
-    fun savePairing(context: Context, serverUrl: String, token: String, stationId: String) {
+    fun savePairing(context: Context, serverUrl: String, token: String, stationId: String, stationType: String = "") {
+        val finalType = if (stationType.isNotBlank()) stationType else if (stationId.contains("GRIND", ignoreCase = true)) "grinder" else "mixer"
         val prefs = getSharedPrefs(context)
         prefs.edit().apply {
             putString(KEY_SERVER_URL, serverUrl)
             putString(KEY_STATION_TOKEN, token)
             putString(KEY_STATION_ID, stationId)
+            putString(KEY_STATION_TYPE, finalType)
             apply()
         }
+    }
+
+    fun getStationType(context: Context): String {
+        val saved = getSharedPrefs(context).getString(KEY_STATION_TYPE, "") ?: ""
+        if (saved.isNotBlank()) return saved
+        val stationId = getStationId(context)
+        return if (stationId.contains("GRIND", ignoreCase = true)) "grinder" else "mixer"
     }
 
     fun getServerUrl(context: Context): String {

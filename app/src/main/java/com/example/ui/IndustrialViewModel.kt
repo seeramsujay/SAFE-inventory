@@ -34,6 +34,9 @@ class IndustrialViewModel(
     private val _stationId = MutableStateFlow("")
     val stationId: StateFlow<String> = _stationId.asStateFlow()
 
+    private val _stationType = MutableStateFlow("mixer")
+    val stationType: StateFlow<String> = _stationType.asStateFlow()
+
     // 3. Login / Shift Entry Session State
     val workerIdInput = MutableStateFlow("")
     val pinInput = MutableStateFlow("")
@@ -65,6 +68,7 @@ class IndustrialViewModel(
         // Initialize pairing state from preferences
         val savedStation = com.example.data.PreferencesManager.getStationId(application)
         _stationId.value = savedStation
+        _stationType.value = com.example.data.PreferencesManager.getStationType(application)
         
         // Load persistent break state
         _isOnBreak.value = com.example.data.PreferencesManager.getIsOnBreak(application)
@@ -107,7 +111,7 @@ class IndustrialViewModel(
     private val _currentScreen = MutableStateFlow("login")
     val currentScreen: StateFlow<String> = _currentScreen.asStateFlow()
 
-    fun savePairing(stationId: String, token: String, url: String) {
+    fun savePairing(stationId: String, token: String, url: String, stationType: String = "") {
         var cleanedUrl = url.trim()
         if (cleanedUrl.isNotBlank() && !cleanedUrl.startsWith("http://") && !cleanedUrl.startsWith("https://")) {
             cleanedUrl = "http://$cleanedUrl"
@@ -115,8 +119,10 @@ class IndustrialViewModel(
         if (cleanedUrl.endsWith("/")) {
             cleanedUrl = cleanedUrl.substring(0, cleanedUrl.length - 1)
         }
-        com.example.data.PreferencesManager.savePairing(getApplication(), cleanedUrl, token, stationId)
+        val finalType = if (stationType.isNotBlank()) stationType else if (stationId.contains("GRIND", ignoreCase = true)) "grinder" else "mixer"
+        com.example.data.PreferencesManager.savePairing(getApplication(), cleanedUrl, token, stationId, finalType)
         _stationId.value = stationId
+        _stationType.value = finalType
         workerIdInput.value = stationId
         pinInput.value = token
         triggerOfflineSync()
@@ -125,6 +131,7 @@ class IndustrialViewModel(
     fun clearPairing() {
         com.example.data.PreferencesManager.clearPairing(getApplication())
         _stationId.value = ""
+        _stationType.value = "mixer"
         workerIdInput.value = ""
         pinInput.value = ""
     }
