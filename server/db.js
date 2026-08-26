@@ -8,6 +8,16 @@ const DB_FILE = path.resolve(__dirname, '../nexus.db');
 
 const db = new sqlite3.Database(DB_FILE);
 
+// Enable WAL (Write-Ahead Logging) for crash/power-cut safety.
+// WAL writes to a separate log file and only merges on checkpoint, so a power cut
+// mid-write cannot corrupt the main DB file. FULL synchronous ensures OS flushes to disk.
+db.serialize(() => {
+  db.run('PRAGMA journal_mode = WAL;');
+  db.run('PRAGMA synchronous = FULL;');
+  db.run('PRAGMA wal_autocheckpoint = 100;'); // checkpoint every 100 pages (~400KB)
+  db.run('PRAGMA busy_timeout = 5000;');      // wait up to 5s on DB lock instead of failing
+});
+
 console.log(`[Database] Routing local API server calls to local SQLite: ${DB_FILE}`);
 
 // Helper to run queries with promises
@@ -245,13 +255,127 @@ export async function initDb() {
     await run(`UPDATE products SET mixtureRatios = ? WHERE id = 'PRD-002'`, [updatedRatios2]);
   }
 
-  // Seed baseline data if empty
+  // Safe first-boot seed: only insert entities that don't already exist.
+  // This NEVER deletes any existing data, so restarts/power-cuts are safe.
   const prodCount = await get(`SELECT COUNT(*) as count FROM products`);
   if (prodCount.count === 0) {
-    await seedData();
+    await seedProductsOnly();
+  }
+  const invCount = await get(`SELECT COUNT(*) as count FROM inventory`);
+  if (invCount.count === 0) {
+    await seedInventoryOnly();
+  }
+  const ordCount = await get(`SELECT COUNT(*) as count FROM orders`);
+  if (ordCount.count === 0) {
+    await seedOrdersOnly();
+  }
+
+  // Register graceful shutdown to checkpoint the WAL before the process exits,
+  // so no data is left only in the WAL log on a clean stop or power-cut recovery.
+  const checkpointOnExit = () => {
+    db.run('PRAGMA wal_checkpoint(TRUNCATE);', () => {
+      db.close();
+    });
+  };
+  process.once('SIGTERM', checkpointOnExit);
+  process.once('SIGINT',  checkpointOnExit);
+  process.once('exit',    checkpointOnExit);
+}
+
+// ─── Safe per-entity seeders (used on first boot, never delete existing data) ───
+
+async function seedProductsOnly() {
+  const initialProducts = [
+    {
+      id: "PRD-001",
+      name: "क्रीम स्पेशल",
+      englishName: "Cream Special",
+      targetUph: 1200,
+      colorHex: "#00875A",
+      isActive: 1,
+      manualFileName: "Cream_Special_Ops_v2.pdf",
+      nominalBatchDurationSec: 480,
+      mixtureRatios: JSON.stringify([
+        { ingredientId: "ING-006", percentage: 120, stage: "grinder", requiresGrinding: true },
+        { ingredientId: "ING-001", percentage: 200, stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-002", percentage: 150, stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-003", percentage: 80,  stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-004", percentage: 50,  stage: "mixer", requiresGrinding: false }
+      ])
+    },
+    {
+      id: "PRD-002",
+      name: "प्रीमियम प्लस",
+      englishName: "Premium Plus",
+      targetUph: 1500,
+      colorHex: "#E65100",
+      isActive: 1,
+      manualFileName: "Premium_Plus_Standard_v4.pdf",
+      nominalBatchDurationSec: 600,
+      mixtureRatios: JSON.stringify([
+        { ingredientId: "ING-006", percentage: 150, stage: "grinder", requiresGrinding: true },
+        { ingredientId: "ING-001", percentage: 180, stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-002", percentage: 150, stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-003", percentage: 70,  stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-005", percentage: 50,  stage: "mixer", requiresGrinding: false }
+      ])
+    }
+  ];
+  for (const p of initialProducts) {
+    await run(
+      `INSERT OR IGNORE INTO products (id, name, englishName, targetUph, colorHex, isActive, manualFileName, nominalBatchDurationSec, mixtureRatios)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [p.id, p.name, p.englishName, p.targetUph, p.colorHex, p.isActive, p.manualFileName, p.nominalBatchDurationSec, p.mixtureRatios]
+    );
   }
 }
 
+async function seedInventoryOnly() {
+  const initialInventory = [
+    { itemId: "ING-006", name: "Raw Maize (Corn)",   hindiName: "साबुत मक्का",      type: "raw_material",  stock: 8500,  unit: "kg",     minStock: 1500, requiresGrinding: 1, stage: "grinder" },
+    { itemId: "ING-001", name: "Wheat Flour",         hindiName: "गेंहू का आटा",     type: "raw_material",  stock: 12500, unit: "kg",     minStock: 2000, requiresGrinding: 0, stage: "mixer" },
+    { itemId: "ING-002", name: "Refined Sugar",       hindiName: "चीनी",             type: "raw_material",  stock: 5400,  unit: "kg",     minStock: 1000, requiresGrinding: 0, stage: "mixer" },
+    { itemId: "ING-003", name: "Vegetable Fats",      hindiName: "वनस्पति वसा",      type: "raw_material",  stock: 3200,  unit: "kg",     minStock: 800,  requiresGrinding: 0, stage: "mixer" },
+    { itemId: "ING-004", name: "Cream Flavoring",     hindiName: "क्रीम फ्लेवर",     type: "raw_material",  stock: 650,   unit: "kg",     minStock: 150,  requiresGrinding: 0, stage: "mixer" },
+    { itemId: "ING-005", name: "Premium Additive",    hindiName: "प्रीमियम एडिटिव", type: "raw_material",  stock: 450,   unit: "kg",     minStock: 100,  requiresGrinding: 0, stage: "mixer" },
+    { itemId: "FIN-001", name: "Cream Special",       hindiName: "क्रीम स्पेशल",    type: "finished_good", stock: 4,     unit: "batches",minStock: 2,    requiresGrinding: 0, stage: "mixer" },
+    { itemId: "FIN-002", name: "Premium Plus",        hindiName: "प्रीमियम प्लस",   type: "finished_good", stock: 2,     unit: "batches",minStock: 1,    requiresGrinding: 0, stage: "mixer" },
+    { itemId: "FIN-003", name: "Standard Blend",      hindiName: "मानक मिश्रण",     type: "finished_good", stock: 0,     unit: "batches",minStock: 1,    requiresGrinding: 0, stage: "mixer" }
+  ];
+  for (const i of initialInventory) {
+    await run(
+      `INSERT OR IGNORE INTO inventory (itemId, name, hindiName, type, stock, unit, minStock, requiresGrinding, stage, lastUpdated)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [i.itemId, i.name, i.hindiName, i.type, i.stock, i.unit, i.minStock, i.requiresGrinding || 0, i.stage || 'mixer', Date.now()]
+    );
+  }
+}
+
+async function seedOrdersOnly() {
+  const initialOrders = [
+    {
+      id: "ORD-1001", productKey: "PRD-001",
+      productNameEnglish: "Cream Special", productNameHindi: "क्रीम स्पेशल",
+      totalBatchesScheduled: 14, completedBatches: 0,
+      status: "ACTIVE", colorHex: "#00875A", queueOrder: 0
+    },
+    {
+      id: "ORD-1002", productKey: "PRD-002",
+      productNameEnglish: "Premium Plus", productNameHindi: "प्रीमियम प्लस",
+      totalBatchesScheduled: 8, completedBatches: 0,
+      status: "PENDING", colorHex: "#E65100", queueOrder: 1
+    }
+  ];
+  for (const o of initialOrders) {
+    await run(
+      `INSERT OR IGNORE INTO orders (id, productKey, productNameEnglish, productNameHindi, totalBatchesScheduled, completedBatches, status, timestamp, colorHex, queueOrder)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [o.id, o.productKey, o.productNameEnglish, o.productNameHindi, o.totalBatchesScheduled, o.completedBatches, o.status, Date.now(), o.colorHex, o.queueOrder]
+    );
+  }
+}
+
+// ─── Full reset (called only via /api/reseed — manual admin action) ───────────
 export async function seedData() {
   // Clear tables
   await run(`DELETE FROM products`);
