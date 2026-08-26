@@ -349,8 +349,63 @@ async function runTests() {
     assert(mixerPayload.stationType === 'mixer' && mixerPayload.token && mixerPayload.url,
       'Mixer payload matches PreferencesManager.savePairing schema');
 
+    // ----------------------------------------------------
+    // STEP 11: Grinder Bulk Pulverization & Batch Queue Selection Freedom
+    // ----------------------------------------------------
+    logStep(11, 'Testing Grinder Bulk Pulverization (All Batches in One Go)...');
+    
+    // Create a multi-batch order (e.g. 3 batches)
+    const bulkOrderId = `ORD-BULK-${Date.now()}`;
+    const createBulkOrderRes = await request('/api/orders', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: bulkOrderId,
+        recipeId: 'PRD-001',
+        recipeName: 'Cream Special',
+        recipeHindiName: 'क्रीम स्पेशल',
+        targetUnits: 3600, // 3 batches
+        status: 'Pending',
+        timestamp: Date.now()
+      })
+    });
+    assert(createBulkOrderRes.ok, 'Multi-batch pending order created');
+
+    // Check maize stock before bulk pulverize
+    const preBulkInv = await request('/api/inventory');
+    const preBulkMaize = preBulkInv.data.find(i => i.itemId === 'ING-006');
+
+    // Grinder performs bulk pulverization for all 3 batches in one continuous run
+    const bulkGrindRes = await request('/api/logs', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer TOKEN-GRINDER-STATION'
+      },
+      body: JSON.stringify({
+        batchId: `BULK-GRIND-${Date.now()}`,
+        orderId: bulkOrderId,
+        productName: 'Cream Special',
+        productHindiName: 'क्रीम स्पेशल',
+        stationId: 'GRINDER-01',
+        stage: 'grinder',
+        bulkGrind: true,
+        batchesCount: 3,
+        status: 'Success',
+        unitsProduced: 360,
+        timestamp: Date.now()
+      })
+    });
+    assert(bulkGrindRes.ok, 'Bulk grinding log accepted by server');
+
+    // Verify exactly 360 kg (3 * 120 kg) was deducted from maize stock
+    const postBulkInv = await request('/api/inventory');
+    const postBulkMaize = postBulkInv.data.find(i => i.itemId === 'ING-006');
+    const expectedMaizeDeduction = 3 * 120;
+    const actualDeduction = preBulkMaize.stock - postBulkMaize.stock;
+    assert(actualDeduction === expectedMaizeDeduction, 
+      `Bulk pulverization deducted exactly ${expectedMaizeDeduction} kg of raw maize (3 batches x 120 kg)`);
+
     console.log('\n\x1b[32m======================================================================\x1b[0m');
-    console.log('\x1b[32m\x1b[1m   ALL 10 VERIFICATION SUITES PASSED CLEANLY WITH ZERO FAILURES!      \x1b[0m');
+    console.log('\x1b[32m\x1b[1m   ALL 11 VERIFICATION SUITES PASSED CLEANLY WITH ZERO FAILURES!      \x1b[0m');
     console.log('\x1b[32m======================================================================\x1b[0m\n');
 
   } catch (err) {

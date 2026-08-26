@@ -385,6 +385,7 @@ export default function App() {
 
   // Worker Panel specific states
   const [activeWorkerOrderId, setActiveWorkerOrderId] = useState<string | null>(null);
+  const [selectedWorkerBatchNum, setSelectedWorkerBatchNum] = useState<number>(1);
   const [workerUnitsProducedInput, setWorkerUnitsProducedInput] = useState<number>(0);
   const [workerProcessingLine, setWorkerProcessingLine] = useState<string>('Line A');
 
@@ -712,16 +713,20 @@ export default function App() {
   // Keep worker active order and progress synced with the backend orders state in real-time
   useEffect(() => {
     if (workerToken) {
-      const activeOrder = orders.find(o => o.status === 'In Progress');
-      if (activeOrder) {
-        if (activeWorkerOrderId !== activeOrder.id) {
-          setActiveWorkerOrderId(activeOrder.id);
-        }
-        if (workerUnitsProducedInput !== activeOrder.unitsProduced) {
-          setWorkerUnitsProducedInput(activeOrder.unitsProduced);
+      const currentSelected = activeWorkerOrderId ? orders.find(o => o.id === activeWorkerOrderId) : null;
+      if (currentSelected && currentSelected.status !== 'Completed') {
+        if (workerUnitsProducedInput !== currentSelected.unitsProduced) {
+          setWorkerUnitsProducedInput(currentSelected.unitsProduced);
         }
       } else {
-        if (activeWorkerOrderId !== null) {
+        const nextOrder = orders.find(o => o.status === 'In Progress') || orders.find(o => o.status === 'Pending');
+        if (nextOrder) {
+          setActiveWorkerOrderId(nextOrder.id);
+          const bSize = getProductBatchSize(nextOrder.recipeId);
+          const comp = Math.floor(nextOrder.unitsProduced / bSize);
+          setSelectedWorkerBatchNum(comp + 1);
+          setWorkerUnitsProducedInput(nextOrder.unitsProduced);
+        } else {
           setActiveWorkerOrderId(null);
           setWorkerUnitsProducedInput(0);
         }
@@ -953,10 +958,7 @@ export default function App() {
         fetchOrders();
         setActiveWorkerOrderId(orderId);
         const activeOrder = orders.find(o => o.id === orderId);
-        if (activeOrder) {
-          setWorkerUnitsProducedInput(activeOrder.unitsProduced);
-        }
-      }
+}
     } catch (err) {
       console.error("Failed to start worker order:", err);
     }
@@ -981,7 +983,10 @@ export default function App() {
     }
   };
 
-  const handleWorkerCompleteOrder = async (status: 'Success' | 'Failed') => {
+  const handleWorkerCompleteOrder = async (
+    status: 'Success' | 'Failed',
+    options?: { bulkGrind?: boolean; batchesCount?: number; targetBatchNum?: number }
+  ) => {
     if (!activeWorkerOrderId) return;
     const order = orders.find(o => o.id === activeWorkerOrderId);
     if (!order) return;
@@ -989,17 +994,29 @@ export default function App() {
     const batchSize = getProductBatchSize(order.recipeId);
     const batchesCompleted = Math.round(order.unitsProduced / batchSize);
     const isGrinder = workerStationType === 'grinder';
-    const newLog: Partial<BatchLog> & { stage: 'grinder' | 'mixer'; orderId: string } = {
-      batchId: `${order.id}-B${batchesCompleted + 1}${isGrinder ? '-GRIND' : '-MIX'}`,
+    const isBulk = Boolean(options?.bulkGrind && (options?.batchesCount || 1) > 1);
+    const batchesCount = isBulk ? (options?.batchesCount || 1) : 1;
+    const batchNum = options?.targetBatchNum || (batchesCompleted + 1);
+
+    const newLog: any = {
+      batchId: isBulk 
+        ? `${order.id}-BULK-GRIND-${Date.now()}` 
+        : `${order.id}-B${batchNum}${isGrinder ? '-GRIND' : '-MIX'}`,
       orderId: order.id,
-      productNameHindi: isGrinder ? `${order.recipeHindiName} [पिसाई]` : order.recipeHindiName,
-      productNameEnglish: isGrinder ? `${order.recipeName} [GRINDER: POWDERED]` : order.recipeName,
+      productNameHindi: isGrinder 
+        ? (isBulk ? `${order.recipeHindiName} [थोक पिसाई: ${batchesCount} बैच]` : `${order.recipeHindiName} [पिसाई]`) 
+        : order.recipeHindiName,
+      productNameEnglish: isGrinder 
+        ? (isBulk ? `${order.recipeName} [BULK GRIND: ${batchesCount} BATCHES]` : `${order.recipeName} [GRINDER: POWDERED]`) 
+        : order.recipeName,
       line: workerProcessingLine,
-      unitsProduced: isGrinder ? 120 : batchSize,
+      unitsProduced: isGrinder ? (120 * batchesCount) : batchSize,
       status: status,
       timestamp: Date.now(),
-      targetUnits: isGrinder ? 120 : batchSize,
+      targetUnits: isGrinder ? (120 * batchesCount) : batchSize,
       stage: workerStationType,
+      bulkGrind: isBulk,
+      batchesCount: batchesCount,
       feedbackQuality: !isGrinder ? mixerFeedbackQuality : undefined,
       feedbackTexture: !isGrinder ? mixerFeedbackTexture : undefined,
       feedbackNotes: !isGrinder ? mixerFeedbackNotes : undefined,
@@ -1024,8 +1041,12 @@ export default function App() {
           if (isGrinder) {
             setWorkerCelebration({
               active: true,
-              title: "मक्का पीसा गया और पाइपलाइन में भेजा गया!",
-              subtitle: "120 KG RAW MAIZE PULVERIZED (< 200 µm) & TRANSFERRED TO MIXER PIPELINE",
+              title: isBulk 
+                ? `थोक पिसाई पूरी! (${batchesCount} बैच)` 
+                : "मक्का पीसा गया और पाइपलाइन में भेजा गया!",
+              subtitle: isBulk 
+                ? `${batchesCount * 120} KG RAW MAIZE BULK PULVERIZED & DISPATCHED TO MIXER PIPELINE` 
+                : "120 KG RAW MAIZE PULVERIZED (< 200 µm) & TRANSFERRED TO MIXER PIPELINE",
               stage: 'grinder'
             });
           } else {
@@ -1170,6 +1191,37 @@ export default function App() {
     const grinderBatchWeight = grinderOnlyIngredients.reduce((s, ing) => s + ing.percentage, 0) || 120;
     const mixerBatchWeight = activeOrderDetails ? getProductBatchSize(activeOrderDetails.recipeId) : 600;
 
+    const orderBatchSize = activeOrderDetails ? getProductBatchSize(activeOrderDetails.recipeId) : 600;
+    const totalOrderBatches = activeOrderDetails ? Math.max(1, Math.ceil(activeOrderDetails.targetUnits / orderBatchSize)) : 1;
+    const completedOrderBatches = activeOrderDetails ? Math.floor(activeOrderDetails.unitsProduced / orderBatchSize) : 0;
+    const remainingOrderBatches = Math.max(1, totalOrderBatches - completedOrderBatches);
+
+    // Compute sequential upcoming batches across all active/pending orders
+    const upcomingBatches = orders
+      .filter(o => o.status === 'In Progress' || o.status === 'Pending')
+      .flatMap(o => {
+        const bSize = getProductBatchSize(o.recipeId);
+        const total = Math.max(1, Math.ceil(o.targetUnits / bSize));
+        const comp = Math.floor(o.unitsProduced / bSize);
+        const rem = Math.max(0, total - comp);
+        const list = [];
+        for (let i = 1; i <= rem; i++) {
+          const bNum = comp + i;
+          list.push({
+            batchId: `${o.id}-B${bNum}`,
+            orderId: o.id,
+            batchNumber: bNum,
+            totalBatches: total,
+            productHindi: o.recipeHindiName || o.recipeName,
+            productEnglish: o.recipeName,
+            recipeId: o.recipeId,
+            orderStatus: o.status,
+            isSelected: o.id === activeWorkerOrderId && bNum === selectedWorkerBatchNum
+          });
+        }
+        return list;
+      });
+
     return (
       <div className={`min-h-screen ${isGrinder ? 'bg-[#0E0C09] text-[#E2E0D8]' : 'bg-[#090D12] text-[#D1D4DC]'} flex flex-col font-sans selection:bg-${isGrinder ? 'amber-500' : 'cyan-500'} selection:text-black transition-colors duration-500`}>
         
@@ -1290,93 +1342,66 @@ export default function App() {
               </div>
             </div>
 
-            {/* Next Up Card */}
-            {(() => {
-              const pendingOrders = orders.filter(o => o.status === 'Pending' && o.id !== activeWorkerOrderId);
-              const nextOrder = pendingOrders[0];
-              if (!nextOrder) return null;
-              const nextProd = products.find(p => p.id === nextOrder.recipeId) || INITIAL_PRODUCTS.find(p => p.id === nextOrder.recipeId);
-              return (
-                <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/40 shadow-md">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider">
-                      अगला कार्य // NEXT UP
-                    </span>
-                    <span className="text-[10px] font-mono text-gray-400">{nextOrder.id}</span>
-                  </div>
-                  <h4 className="text-sm font-black text-white">{nextOrder.recipeHindiName || nextOrder.recipeName}</h4>
-                  <span className="text-[11px] font-mono text-gray-400 block">{nextOrder.recipeName}</span>
-                  <div className="mt-2 flex items-center justify-between text-xs font-mono">
-                    <span className="text-gray-300">Target: {nextOrder.targetUnits.toLocaleString()} units</span>
-                    <button
-                      onClick={() => handleWorkerStartOrder(nextOrder.id)}
-                      className="bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black px-2.5 py-1 rounded transition"
-                    >
-                      Start Next
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Production Queue List */}
+            {/* UPCOMING BATCHES QUEUE (Left 1/3rd) */}
             <div className={`flex-1 p-4 rounded-xl border ${isGrinder ? 'bg-[#14120D] border-amber-500/30' : 'bg-[#0E131A] border-[#00F0FF]/30'} flex flex-col gap-3 shadow-xl`}>
               <div className="flex items-center justify-between border-b border-gray-800 pb-2">
                 <div className="flex items-center gap-2">
                   <Layers className={`w-4 h-4 ${isGrinder ? 'text-amber-400' : 'text-[#00F0FF]'}`} />
-                  <h3 className="text-xs font-black text-white uppercase font-mono tracking-wide">
-                    उत्पादन कतार (PRODUCTION QUEUE)
-                  </h3>
+                  <div>
+                    <h3 className="text-xs font-black text-white uppercase font-mono tracking-wide">
+                      आगामी बैच (UPCOMING BATCHES)
+                    </h3>
+                    <p className="text-[9px] text-gray-500 font-mono">
+                      बैच चुनें और फॉर्मूला देखें / Click to load formula
+                    </p>
+                  </div>
                 </div>
                 <span className="text-[10px] font-mono font-bold text-gray-400">
-                  {orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').length} in queue
+                  {upcomingBatches.length} queued
                 </span>
               </div>
 
-              <div className="flex flex-col gap-2.5 overflow-y-auto max-h-[500px] pr-1">
-                {orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').length === 0 ? (
+              <div className="flex flex-col gap-2 overflow-y-auto max-h-[520px] pr-1">
+                {upcomingBatches.length === 0 ? (
                   <div className="p-6 text-center bg-black/40 border border-dashed border-gray-800 rounded-lg">
-                    <p className="text-xs text-gray-500 font-mono uppercase">कतार खाली है / Queue Empty</p>
+                    <p className="text-xs text-gray-500 font-mono uppercase">कतार खाली है / No Upcoming Batches</p>
                   </div>
                 ) : (
-                  orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').map(o => {
-                    const isActive = o.id === activeWorkerOrderId;
+                  upcomingBatches.map(b => {
+                    const isSelected = b.isSelected;
                     return (
                       <div
-                        key={o.id}
-                        className={`p-3 rounded-lg border transition ${
-                          isActive
+                        key={b.batchId}
+                        onClick={() => {
+                          setActiveWorkerOrderId(b.orderId);
+                          setSelectedWorkerBatchNum(b.batchNumber);
+                        }}
+                        className={`p-3 rounded-lg border transition cursor-pointer ${
+                          isSelected
                             ? isGrinder
-                              ? 'bg-amber-950/40 border-amber-500 shadow-md'
-                              : 'bg-cyan-950/40 border-[#00F0FF] shadow-md'
-                            : 'bg-black/40 border-gray-800 hover:border-gray-700'
+                              ? 'bg-amber-950/40 border-amber-500 shadow-md shadow-amber-500/10 ring-1 ring-amber-500'
+                              : 'bg-cyan-950/40 border-[#00F0FF] shadow-md shadow-cyan-500/10 ring-1 ring-[#00F0FF]'
+                            : 'bg-black/40 border-gray-800 hover:border-gray-600'
                         }`}
                       >
                         <div className="flex justify-between items-start">
                           <div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] font-bold font-mono text-gray-400">{o.id}</span>
-                              <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded font-bold ${
-                                isActive
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] font-mono font-bold ${isSelected ? (isGrinder ? 'text-amber-400' : 'text-[#00F0FF]') : 'text-gray-400'}`}>
+                                BATCH #{b.batchNumber} / {b.totalBatches}
+                              </span>
+                              <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded font-black tracking-wider uppercase ${
+                                isSelected
                                   ? isGrinder ? 'bg-amber-500 text-black' : 'bg-[#00F0FF] text-black'
-                                  : 'bg-yellow-500/10 text-yellow-500'
+                                  : 'bg-gray-800 text-gray-400'
                               }`}>
-                                {isActive ? 'ACTIVE' : 'PENDING'}
+                                {isSelected ? 'SELECTED' : 'UPCOMING'}
                               </span>
                             </div>
-                            <h5 className="text-xs font-bold text-white mt-0.5 leading-tight">{o.recipeHindiName || o.recipeName}</h5>
-                            <span className="text-[10px] text-gray-400 font-mono block">{o.recipeName}</span>
+                            <h5 className="text-xs font-bold text-white mt-1 leading-tight">{b.productHindi}</h5>
+                            <span className="text-[10px] text-gray-400 font-mono block">{b.productEnglish}</span>
+                            <span className="text-[9px] text-gray-500 font-mono block mt-1">Order: {b.orderId}</span>
                           </div>
-                          {!isActive && (
-                            <button
-                              onClick={() => handleWorkerStartOrder(o.id)}
-                              className={`text-[10px] font-mono font-bold px-2 py-1 rounded transition ${
-                                isGrinder ? 'bg-amber-500/20 hover:bg-amber-500 text-amber-400 hover:text-black border border-amber-500/30' : 'bg-cyan-500/20 hover:bg-cyan-400 text-cyan-400 hover:text-black border border-cyan-500/30'
-                              }`}
-                            >
-                              Load
-                            </button>
-                          )}
                         </div>
                       </div>
                     );
@@ -1398,6 +1423,9 @@ export default function App() {
                     <div className="flex items-center gap-2">
                       <span className={`text-[10px] font-mono ${isGrinder ? 'text-amber-400 bg-amber-500/10 border-amber-500/30' : 'text-[#00F0FF] bg-[#00F0FF]/10 border-[#00F0FF]/30'} border px-2.5 py-0.5 rounded-full font-bold uppercase`}>
                         {isGrinder ? 'STAGE 1: GRINDER RUNNING' : 'STAGE 2: MIXER COMPOUNDING'}
+                      </span>
+                      <span className={`text-xs font-mono font-black px-2 py-0.5 rounded ${isGrinder ? 'bg-amber-500/20 text-amber-300' : 'bg-cyan-500/20 text-cyan-300'}`}>
+                        BATCH #{selectedWorkerBatchNum} OF {totalOrderBatches}
                       </span>
                       <span className="text-xs font-mono text-gray-400">{activeOrderDetails.id}</span>
                     </div>
@@ -1488,13 +1516,35 @@ export default function App() {
                         ★ ग्राइंडर पर फीडबैक की आवश्यकता नहीं है। मक्का पीसकर सीधे पाइपलाइन में भेजें। गुणवत्ता फीडबैक मिक्सर ऑपरेटर द्वारा दिया जाएगा।
                       </div>
 
-                      {/* Action Button */}
+                      {/* Bulk Grinding Option: If order has > 1 remaining batches */}
+                      {remainingOrderBatches > 1 && (
+                        <div className="bg-amber-950/40 border-2 border-amber-500/60 rounded-xl p-4 flex flex-col md:flex-row items-center justify-between gap-3 shadow-lg">
+                          <div>
+                            <h5 className="text-xs font-black text-amber-400 uppercase font-mono tracking-wide flex items-center gap-2">
+                              <Zap className="w-4 h-4 text-amber-400" />
+                              थोक पिसाई (BULK GRIND ALL REMAINING BATCHES)
+                            </h5>
+                            <p className="text-[11px] text-gray-300 font-mono mt-0.5">
+                              ग्राइंडर एक साथ 100 टन तक पीस सकता है। पूरे ऑर्डर के सभी {remainingOrderBatches} बैच ({remainingOrderBatches * 120} kg मक्का) एक साथ पीसें।
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleWorkerCompleteOrder('Success', { bulkGrind: true, batchesCount: remainingOrderBatches })}
+                            className="whitespace-nowrap bg-amber-500 hover:bg-amber-400 text-black font-black text-xs font-mono px-4 py-2.5 rounded-lg shadow-md transition flex items-center gap-2 shrink-0"
+                          >
+                            ⚡ सभी {remainingOrderBatches} बैच एक साथ पीसें ({remainingOrderBatches * 120} KG)
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Action Slider / Button Preserved */}
                       <button
-                        onClick={() => handleWorkerCompleteOrder('Success')}
+                        onClick={() => handleWorkerCompleteOrder('Success', { targetBatchNum: selectedWorkerBatchNum })}
                         className="w-full bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black py-4 px-6 rounded-xl font-black font-mono text-base transition shadow-xl shadow-amber-500/20 active:scale-[0.99] flex items-center justify-center gap-3 tracking-wider"
                       >
                         <Wind className="w-5 h-5 text-black animate-pulse" />
-                        <span>मक्का पीसकर पाइपलाइन में भेजें (SEND TO PIPELINE)</span>
+                        <span>1 बैच मक्का पीसकर पाइपलाइन में भेजें (SEND 1 BATCH: 120 KG)</span>
                         <ChevronRight className="w-5 h-5 text-black" />
                       </button>
                     </div>

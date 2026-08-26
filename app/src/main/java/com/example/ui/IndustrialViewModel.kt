@@ -25,6 +25,17 @@ data class OrderInfo(
     val timestamp: Long = 0L
 )
 
+data class UpcomingBatchItem(
+    val batchId: String,
+    val orderId: String,
+    val batchNumber: Int,
+    val totalBatchesInOrder: Int,
+    val productNameHindi: String,
+    val productNameEnglish: String,
+    val colorHex: String,
+    val isSelected: Boolean = false
+)
+
 class IndustrialViewModel(
     application: Application,
     private val repository: IndustrialRepository
@@ -50,6 +61,57 @@ class IndustrialViewModel(
     // Full day order queue state
     private val _ordersQueue = MutableStateFlow<List<OrderInfo>>(emptyList())
     val ordersQueue: StateFlow<List<OrderInfo>> = _ordersQueue.asStateFlow()
+
+    // Active order ID being operated on
+    val activeOrderId = MutableStateFlow("")
+
+    // Selected batch number for active working formula
+    val selectedBatchNumber = MutableStateFlow(1)
+
+    // Reactive stream of upcoming batches across scheduled orders
+    val upcomingBatches: StateFlow<List<UpcomingBatchItem>> = kotlinx.coroutines.flow.combine(
+        _ordersQueue,
+        activeOrderId,
+        selectedBatchNumber
+    ) { orders, actId, selNum ->
+        val list = mutableListOf<UpcomingBatchItem>()
+        for (ord in orders) {
+            if (ord.status == "ACTIVE" || ord.status == "PENDING" || ord.status.equals("In Progress", ignoreCase = true)) {
+                val remaining = maxOf(0, ord.totalBatchesScheduled - ord.completedBatches)
+                for (i in 1..remaining) {
+                    val bNum = ord.completedBatches + i
+                    val isSel = (ord.id == actId && bNum == selNum)
+                    list.add(
+                        UpcomingBatchItem(
+                            batchId = "B-${ord.id}-$bNum",
+                            orderId = ord.id,
+                            batchNumber = bNum,
+                            totalBatchesInOrder = ord.totalBatchesScheduled,
+                            productNameHindi = ord.productNameHindi,
+                            productNameEnglish = ord.productNameEnglish,
+                            colorHex = ord.colorHex,
+                            isSelected = isSel
+                        )
+                    )
+                }
+            }
+        }
+        list
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun selectBatch(item: UpcomingBatchItem) {
+        activeOrderId.value = item.orderId
+        selectedBatchNumber.value = item.batchNumber
+        activeProductNameEnglish.value = item.productNameEnglish
+        activeProductNameHindi.value = item.productNameHindi
+        activeProductColorHex.value = item.colorHex
+        activeBatchCountTotal.value = item.totalBatchesInOrder
+        activeBatchCountCompleted.value = item.batchNumber - 1
+        batchId.value = item.batchId
+        val prod = products.value.find { it.englishName.equals(item.productNameEnglish, ignoreCase = true) || it.name.equals(item.productNameHindi, ignoreCase = true) }
+        val nominalDuration = prod?.nominalBatchDurationSec ?: 480
+        _timerRemainingSec.value = nominalDuration
+    }
 
     // Break/Lunch status states
     private val _isOnBreak = MutableStateFlow(false)
@@ -149,7 +211,6 @@ class IndustrialViewModel(
     val activeProductNameEnglish = MutableStateFlow("")
     val activeProductNameHindi = MutableStateFlow("")
     val activeProductColorHex = MutableStateFlow("#1A1A1A")
-    val activeOrderId = MutableStateFlow("")
 
     // Next pending order name — shown in the NEXT JOB card on WorkerTimerScreen
     val nextPendingOrderNameHindi = MutableStateFlow("--")
@@ -294,13 +355,19 @@ class IndustrialViewModel(
     }
 
     // 7. Batch completion action via Swipe-To-Confirm Slider
-    fun completeActiveBatch() {
+    fun completeActiveBatch(
+        feedbackQuality: String? = null,
+        feedbackTexture: String? = null,
+        feedbackNotes: String? = null,
+        feedbackRating: Int = 5
+    ) {
         viewModelScope.launch {
             val currentProductHindi = activeProductNameHindi.value
             val currentProductEnglish = activeProductNameEnglish.value
-            
-            val nextBatchNum = System.currentTimeMillis() % 1000000
-            val nextBatchId = "B-$nextBatchNum"
+            val currentOrderId = activeOrderId.value
+            val currentBatchNum = selectedBatchNumber.value
+            val isGrind = stationType.value == "grinder"
+            val nextBatchId = "B-$currentOrderId-$currentBatchNum${if (isGrind) "-GRIND" else "-MIX"}"
 
             val completed = activeBatchCountCompleted.value + 1
             activeBatchCountCompleted.value = completed
@@ -322,31 +389,39 @@ class IndustrialViewModel(
             // Sync to web companion app
             sendBatchLogToWeb(entity)
 
-            // PATCH update to the server
+            // Direct notify backend
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     val serverUrl = com.example.data.PreferencesManager.getServerUrl(getApplication())
-                    val orderId = activeOrderId.value
-                    val newStatus = if (completed >= activeBatchCountTotal.value) "COMPLETED" else "ACTIVE"
-                    if (orderId.isNotBlank() && serverUrl.isNotBlank()) {
-                        val json = """
-                            {
-                              "completedBatches": $completed,
-                              "status": "$newStatus"
+                    val stationToken = com.example.data.PreferencesManager.getStationToken(getApplication())
+                    if (serverUrl.isNotBlank()) {
+                        val json = org.json.JSONObject().apply {
+                            put("batchId", nextBatchId)
+                            put("orderId", currentOrderId)
+                            put("productNameEnglish", currentProductEnglish)
+                            put("productNameHindi", currentProductHindi)
+                            put("stage", if (isGrind) "grinder" else "mixer")
+                            put("status", "Success")
+                            put("unitsProduced", 1250)
+                            put("timestamp", System.currentTimeMillis())
+                            if (!isGrind) {
+                                put("feedbackQuality", feedbackQuality ?: "Grade A - Optimal")
+                                put("feedbackTexture", feedbackTexture ?: "Smooth Homogeneous")
+                                put("feedbackNotes", feedbackNotes ?: "")
+                                put("feedbackRating", feedbackRating)
                             }
-                        """.trimIndent()
+                        }.toString()
                         val client = NetworkUtils.getOkHttpClient()
                         val body = json.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
                         val request = okhttp3.Request.Builder()
-                            .url("$serverUrl/api/orders/$orderId/status")
-                            .patch(body)
+                            .url("$serverUrl/api/logs")
+                            .post(body)
+                            .addHeader("Authorization", "Bearer $stationToken")
                             .build()
-                        client.newCall(request).execute().use { response ->
-                            // Update successful
-                        }
+                        client.newCall(request).execute().use { }
                     }
-                } catch (e: java.lang.Exception) {
-                    android.util.Log.e("NexusSync", "Failed patching order: ${e.message}")
+                } catch (e: Exception) {
+                    android.util.Log.e("NexusComplete", "Failed logging batch: ${e.message}")
                 }
             }
 
@@ -354,6 +429,61 @@ class IndustrialViewModel(
             val prod = products.value.find { it.englishName == currentProductEnglish }
             val nominalDuration = prod?.nominalBatchDurationSec ?: 420
             _timerRemainingSec.value = nominalDuration
+        }
+    }
+
+    // Grinder Bulk Pulverize: Allows grinding the entire remaining batch set in one go
+    fun completeBulkGrind(orderId: String, totalBatches: Int) {
+        viewModelScope.launch {
+            val currentProductHindi = activeProductNameHindi.value
+            val currentProductEnglish = activeProductNameEnglish.value
+            val bulkBatchId = "B-$orderId-BULK-GRIND-${System.currentTimeMillis() % 1000000}"
+
+            val entity = BatchLogEntity(
+                batchId = bulkBatchId,
+                productNameHindi = "$currentProductHindi [थोक पिसाई]",
+                productNameEnglish = "$currentProductEnglish [BULK GRIND: $totalBatches BATCHES]",
+                line = "Line A",
+                unitsProduced = totalBatches * 1250,
+                status = "Success",
+                timestamp = System.currentTimeMillis(),
+                targetUnits = totalBatches * 1250
+            )
+
+            repository.insertBatchLog(entity)
+            sendBatchLogToWeb(entity)
+
+            // Notify backend of bulk pulverization
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val serverUrl = com.example.data.PreferencesManager.getServerUrl(getApplication())
+                    val stationToken = com.example.data.PreferencesManager.getStationToken(getApplication())
+                    if (serverUrl.isNotBlank()) {
+                        val json = org.json.JSONObject().apply {
+                            put("batchId", bulkBatchId)
+                            put("orderId", orderId)
+                            put("productNameEnglish", currentProductEnglish)
+                            put("productNameHindi", currentProductHindi)
+                            put("stage", "grinder")
+                            put("bulkGrind", true)
+                            put("batchesCount", totalBatches)
+                            put("status", "Success")
+                            put("unitsProduced", totalBatches * 1250)
+                            put("timestamp", System.currentTimeMillis())
+                        }.toString()
+                        val client = NetworkUtils.getOkHttpClient()
+                        val body = json.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                        val request = okhttp3.Request.Builder()
+                            .url("$serverUrl/api/logs")
+                            .post(body)
+                            .addHeader("Authorization", "Bearer $stationToken")
+                            .build()
+                        client.newCall(request).execute().use { }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("NexusBulkGrind", "Failed bulk grind log: ${e.message}")
+                }
+            }
         }
     }
 
@@ -577,19 +707,22 @@ class IndustrialViewModel(
 
                                         if (status == "ACTIVE" && !foundActive) {
                                             foundActive = true
-                                            viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                                                activeOrderId.value = id
-                                                activeProductNameEnglish.value = nameEng
-                                                activeProductNameHindi.value = nameHin
-                                                activeProductColorHex.value = color
-                                                activeBatchCountTotal.value = scheduled
-                                                activeBatchCountCompleted.value = completed
+                                            if (activeOrderId.value.isBlank() || !tempOrders.any { it.id == activeOrderId.value }) {
+                                                viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                                                    activeOrderId.value = id
+                                                    activeProductNameEnglish.value = nameEng
+                                                    activeProductNameHindi.value = nameHin
+                                                    activeProductColorHex.value = color
+                                                    activeBatchCountTotal.value = scheduled
+                                                    activeBatchCountCompleted.value = completed
+                                                    selectedBatchNumber.value = completed + 1
 
-                                                val prod = products.value.find { it.id == productKey || it.englishName == nameEng }
-                                                val nominalDuration = prod?.nominalBatchDurationSec ?: 480
-                                                if (batchId.value != "B-${id}") {
-                                                    _timerRemainingSec.value = nominalDuration
-                                                    batchId.value = "B-${id}"
+                                                    val prod = products.value.find { it.id == productKey || it.englishName == nameEng }
+                                                    val nominalDuration = prod?.nominalBatchDurationSec ?: 480
+                                                    if (batchId.value != "B-${id}-${completed + 1}") {
+                                                        _timerRemainingSec.value = nominalDuration
+                                                        batchId.value = "B-${id}-${completed + 1}"
+                                                    }
                                                 }
                                             }
                                         }

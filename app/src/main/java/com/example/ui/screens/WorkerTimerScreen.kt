@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -128,6 +129,9 @@ fun WorkerTimerScreen(
     val isGrinder = stationType == "grinder"
     
     val ordersQueue by viewModel.ordersQueue.collectAsState()
+    val upcomingBatches by viewModel.upcomingBatches.collectAsState()
+    val selectedBatchNumber by viewModel.selectedBatchNumber.collectAsState()
+    val activeOrderId by viewModel.activeOrderId.collectAsState()
     val isOnBreak by viewModel.isOnBreak.collectAsState()
     val breakDurationSec by viewModel.breakDurationSec.collectAsState()
     val products by viewModel.products.collectAsState()
@@ -288,96 +292,33 @@ fun WorkerTimerScreen(
                         }
                     }
 
-                    // ── WHAT IS NEXT: NEXT UP IN PRODUCTION CARD ──────────────────
-                    Text(
-                        text = "अगला कार्य (WHAT IS NEXT):",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Black,
-                        fontFamily = FontFamily.Monospace,
-                        color = Color(0xFF1A1A1A)
-                    )
-
-                    if (nextPendingOrder != null) {
-                        val nextColor = try {
-                            Color(android.graphics.Color.parseColor(nextPendingOrder.colorHex))
-                        } catch (e: Exception) {
-                            Color(0xFF1A1A1A)
-                        }
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFFFFF7ED))
-                                .border(2.dp, Color(0xFFEA580C))
-                                .padding(10.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = nextPendingOrder.productNameHindi,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = Color(0xFF9A3412)
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .background(Color(0xFFEA580C))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "NEXT UP",
-                                        color = Color.White,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Black,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                            }
-                            Text(
-                                text = nextPendingOrder.productNameEnglish.uppercase(),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = Color.Gray,
-                                modifier = Modifier.padding(top = 2.dp)
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "कुल बैच: ${nextPendingOrder.totalBatchesScheduled} Batches Scheduled",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = Color.Black
-                            )
-                        }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFFF4F5F7))
-                                .border(1.dp, Color(0xFFD8DADC))
-                                .padding(10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "कोई आगामी आदेश नहीं (No Pending Jobs)",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.Gray,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
+                    // ── UPCOMING BATCHES QUEUE (आगामी बैच कतार) ──────────────────
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "आगामी बैच (UPCOMING):",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = FontFamily.Monospace,
+                            color = Color(0xFF1A1A1A)
+                        )
+                        Text(
+                            text = "${upcomingBatches.size} queued",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = Color.Gray
+                        )
                     }
 
-                    // ── PRODUCTION QUEUE (उत्पादन कतार) ──────────────────────────
                     Text(
-                        text = "उत्पादन कतार (PRODUCTION QUEUE):",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Black,
-                        fontFamily = FontFamily.Monospace,
-                        color = Color(0xFF1A1A1A)
+                        text = "बैच चुनें और फॉर्मूला देखें (Click to load formula)",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.Gray
                     )
 
                     LazyColumn(
@@ -389,7 +330,7 @@ fun WorkerTimerScreen(
                             .padding(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        if (ordersQueue.isEmpty()) {
+                        if (upcomingBatches.isEmpty()) {
                             item {
                                 Box(
                                     modifier = Modifier
@@ -398,7 +339,7 @@ fun WorkerTimerScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "कतार खाली है / Queue is empty",
+                                        text = "कतार खाली है / No upcoming batches",
                                         fontSize = 11.sp,
                                         color = Color.Gray,
                                         fontFamily = FontFamily.Monospace
@@ -406,21 +347,20 @@ fun WorkerTimerScreen(
                                 }
                             }
                         } else {
-                            items(ordersQueue) { ord ->
-                                val borderCol = try {
-                                    Color(android.graphics.Color.parseColor(ord.colorHex))
-                                } catch (e: Exception) {
-                                    Color(0xFF1A1A1A)
-                                }
-                                val isActive = ord.status == "ACTIVE"
+                            items(upcomingBatches) { bItem ->
+                                val isSel = bItem.isSelected
+                                val accentCol = if (isGrinder) Color(0xFFD97706) else Color(0xFF00875A)
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(if (isActive) Color(0xFFF0FDF4) else Color.White)
+                                        .background(if (isSel) (if (isGrinder) Color(0xFFFFFBEB) else Color(0xFFF0FDF4)) else Color.White)
                                         .border(
-                                            width = if (isActive) 2.dp else 1.dp,
-                                            color = if (isActive) Color(0xFF00875A) else borderCol.copy(alpha = 0.5f)
+                                            width = if (isSel) 2.5.dp else 1.dp,
+                                            color = if (isSel) accentCol else Color(0xFFE2E8F0)
                                         )
+                                        .clickable {
+                                            viewModel.selectBatch(bItem)
+                                        }
                                         .padding(8.dp)
                                 ) {
                                     Row(
@@ -429,45 +369,46 @@ fun WorkerTimerScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = ord.productNameHindi,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.Black
+                                            text = "BATCH #${bItem.batchNumber} / ${bItem.totalBatchesInOrder}",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Black,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = if (isSel) accentCol else Color.DarkGray
                                         )
                                         Box(
                                             modifier = Modifier
-                                                .background(
-                                                    when (ord.status) {
-                                                        "ACTIVE" -> Color(0xFF00875A)
-                                                        "PENDING" -> Color(0xFFE65100)
-                                                        else -> Color(0xFF7A869A)
-                                                    }
-                                                )
-                                                .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                                .background(if (isSel) accentCol else Color(0xFFE2E8F0))
+                                                .padding(horizontal = 5.dp, vertical = 2.dp)
                                         ) {
                                             Text(
-                                                text = ord.status,
-                                                color = Color.White,
+                                                text = if (isSel) "SELECTED" else "UPCOMING",
+                                                color = if (isSel) Color.White else Color(0xFF475569),
                                                 fontSize = 8.sp,
                                                 fontWeight = FontWeight.Black,
                                                 fontFamily = FontFamily.Monospace
                                             )
                                         }
                                     }
+                                    Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = ord.productNameEnglish.uppercase(),
-                                        fontSize = 9.sp,
+                                        text = bItem.productNameHindi,
+                                        fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.Gray,
-                                        fontFamily = FontFamily.Monospace
+                                        color = Color.Black
+                                    )
+                                    Text(
+                                        text = bItem.productNameEnglish.uppercase(),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = Color.Gray
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "Batches: ${ord.completedBatches} / ${ord.totalBatchesScheduled}",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.Black,
-                                        fontFamily = FontFamily.Monospace
+                                        text = "Order: ${bItem.orderId}",
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = Color(0xFF64748B)
                                     )
                                 }
                             }
@@ -658,7 +599,7 @@ fun WorkerTimerScreen(
                                         .padding(horizontal = 12.dp, vertical = 4.dp)
                                 ) {
                                     Text(
-                                        text = "BATCH $completedBatches / $totalBatches",
+                                        text = "BATCH $selectedBatchNumber / $totalBatches",
                                         color = Color.White,
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Black,
@@ -950,7 +891,36 @@ fun WorkerTimerScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // 3. EXECUTION ACTION SLIDER AT BOTTOM
+                    // Grinder Bulk Action: Pulverize all remaining batches in one shot if > 1 remaining
+                    val remainingBatches = maxOf(1, totalBatches - completedBatches)
+                    if (isGrinder && remainingBatches > 1) {
+                        val totalRemainingMaizeKg = remainingBatches * 120
+                        Button(
+                            onClick = {
+                                viewModel.completeBulkGrind(activeOrderId, remainingBatches)
+                                showSuccessFlash = true
+                            },
+                            shape = RoundedCornerShape(0),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFD97706),
+                                contentColor = Color.White
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .border(2.dp, Color(0xFF1A1A1A))
+                        ) {
+                            Text(
+                                text = "⚡ पूरे ऑर्डर के सभी बैच पीसें (BULK GRIND ALL $remainingBatches BATCHES: ${totalRemainingMaizeKg} KG)",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    // 3. EXECUTION ACTION SLIDER AT BOTTOM (Preserved as requested)
                     SwipeToConfirmSlider(
                         text = if (isGrinder) "मक्का पीसकर पाइपलाइन में भेजें (SEND TO PIPELINE)" else "फीडबैक दर्ज कर बैच पूरा करें (SWIPE FOR FEEDBACK)",
                         successText = if (isGrinder) "पिसाई पूरी - पाइपलाइन में भेजा गया" else "फीडबैक आवश्यक / FEEDBACK REQUIRED",
@@ -1173,7 +1143,12 @@ fun WorkerTimerScreen(
                     Button(
                         onClick = {
                             showMixerFeedbackDialog = false
-                            viewModel.completeActiveBatch()
+                            viewModel.completeActiveBatch(
+                                feedbackQuality = "Grade A - Optimal",
+                                feedbackTexture = selectedTexture,
+                                feedbackNotes = feedbackNotes,
+                                feedbackRating = selectedRating
+                            )
                             showSuccessFlash = true
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00875A))

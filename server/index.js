@@ -574,6 +574,9 @@ async function processBatchLogDeductions(log) {
   );
 
   const isGrinderStage = log.stage === 'grinder' || log.isGrinderStage || (log.stationId && log.stationId.toLowerCase().includes('grind'));
+  const batchesMultiplier = (log.bulkGrind && log.batchesCount && log.batchesCount > 1) 
+    ? parseInt(log.batchesCount) 
+    : (log.batchesCount ? parseInt(log.batchesCount) : 1);
 
   // If this log is from the Grinder station (Stage 1), deduct only grinder raw materials (e.g. Maize) and record pipeline transfer
   if (isGrinderStage) {
@@ -581,13 +584,14 @@ async function processBatchLogDeductions(log) {
       const ratios = JSON.parse(product.mixtureRatios || '[]');
       const grindIngredients = ratios.filter(r => r.stage === 'grinder' || r.requiresGrinding);
       for (const ing of grindIngredients) {
+        const totalDeducted = ing.percentage * batchesMultiplier;
         await run(
           'UPDATE inventory SET stock = MAX(0, stock - ?), lastUpdated = ? WHERE itemId = ?',
-          [ing.percentage, Date.now(), ing.ingredientId]
+          [totalDeducted, Date.now(), ing.ingredientId]
         );
       }
     }
-    return { success: true, stage: 'grinder' };
+    return { success: true, stage: 'grinder', batchesPulverized: batchesMultiplier };
   }
 
   if (product) {
@@ -612,20 +616,22 @@ async function processBatchLogDeductions(log) {
     );
   }
 
-  // 4. Update the active order's completed batch count or specific orderId
-  const activeOrder = log.orderId 
+  // 4. Update the targeted order's completed batch count
+  const targetOrder = log.orderId 
     ? await get("SELECT * FROM orders WHERE id = ?", [log.orderId])
-    : await get("SELECT * FROM orders WHERE (productNameEnglish = ? OR productNameHindi = ?) AND status = 'ACTIVE' LIMIT 1", [productNameEnglish, productNameHindi]);
+    : await get("SELECT * FROM orders WHERE (productNameEnglish = ? OR productNameHindi = ?) AND (status = 'ACTIVE' OR status = 'In Progress' OR status = 'Pending') LIMIT 1", [productNameEnglish, productNameHindi]);
 
-  if (activeOrder) {
-    const newCompleted = (activeOrder.completedBatches || 0) + 1;
-    let newStatus = activeOrder.status;
-    if (newCompleted >= activeOrder.totalBatchesScheduled) {
+  if (targetOrder) {
+    const newCompleted = (targetOrder.completedBatches || 0) + 1;
+    let newStatus = targetOrder.status;
+    if (newCompleted >= targetOrder.totalBatchesScheduled) {
       newStatus = 'COMPLETED';
+    } else if (newStatus === 'PENDING' || newStatus === 'Pending') {
+      newStatus = 'In Progress';
     }
     await run(
       'UPDATE orders SET completedBatches = ?, status = ? WHERE id = ?',
-      [newCompleted, newStatus, activeOrder.id]
+      [newCompleted, newStatus, targetOrder.id]
     );
 
     if (newStatus === 'COMPLETED') {
