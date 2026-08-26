@@ -6,7 +6,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DB_FILE = path.resolve(__dirname, '../nexus.db');
 
-const db = new sqlite3.Database(DB_FILE);
+export const db = new sqlite3.Database(DB_FILE);
 
 // Enable WAL (Write-Ahead Logging) for crash/power-cut safety.
 // WAL writes to a separate log file and only merges on checkpoint, so a power cut
@@ -272,14 +272,18 @@ export async function initDb() {
 
   // Register graceful shutdown to checkpoint the WAL before the process exits,
   // so no data is left only in the WAL log on a clean stop or power-cut recovery.
+  let isClosed = false;
   const checkpointOnExit = () => {
-    db.run('PRAGMA wal_checkpoint(TRUNCATE);', () => {
-      db.close();
-    });
+    if (isClosed) return;
+    isClosed = true;
+    try {
+      db.run('PRAGMA wal_checkpoint(TRUNCATE);', () => {
+        try { db.close(); } catch {}
+      });
+    } catch {}
   };
   process.once('SIGTERM', checkpointOnExit);
   process.once('SIGINT',  checkpointOnExit);
-  process.once('exit',    checkpointOnExit);
 }
 
 // ─── Safe per-entity seeders (used on first boot, never delete existing data) ───

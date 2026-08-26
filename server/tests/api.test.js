@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import express from 'express';
 import cors from 'cors';
-import { run, get, all, initDb, seedData } from '../db.js';
+import { run, get, all, initDb, seedData, db } from '../db.js';
 
 // We can build an instance of the app or import endpoint logic.
 // For clean test isolation, we set up express app with the API endpoints.
@@ -222,8 +222,10 @@ before(async () => {
   });
 });
 
-after(() => {
-  if (server) server.close();
+after(async () => {
+  if (server) {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 describe('Industrial Nexus Backend API Integration Tests', () => {
