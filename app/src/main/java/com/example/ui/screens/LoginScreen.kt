@@ -134,7 +134,7 @@ fun LoginScreen(
                             ) {
                                 Button(
                                     onClick = { 
-                                        viewModel.savePairing("GRINDER-01", "TOKEN-GRINDER-STATION", "http://10.0.2.2:3001", "grinder")
+                                        viewModel.savePairing("GRINDER-01", "TOKEN-GRINDER-STATION", "http://100.99.115.49:3001", "grinder")
                                     },
                                     shape = RoundedCornerShape(0),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
@@ -148,7 +148,7 @@ fun LoginScreen(
                                 
                                 Button(
                                     onClick = { 
-                                        viewModel.savePairing("MIXER-01", "TOKEN-MIXER-STATION", "http://10.0.2.2:3001", "mixer")
+                                        viewModel.savePairing("MIXER-01", "TOKEN-MIXER-STATION", "http://100.99.115.49:3001", "mixer")
                                     },
                                     shape = RoundedCornerShape(0),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00875A)),
@@ -391,7 +391,7 @@ fun LoginScreen(
     }
 
     if (showManualSetupDialog) {
-        var inputUrl by remember { mutableStateOf("http://10.0.2.2:3001") }
+        var inputUrl by remember { mutableStateOf("http://100.99.115.49:3001") }
         var inputStation by remember { mutableStateOf("KIOSK-NEW") }
 
         AlertDialog(

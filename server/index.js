@@ -706,23 +706,39 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: Date.now() });
 });
 
-function getLocalIpAddress() {
+function getNetworkInfo() {
   const interfaces = os.networkInterfaces();
-  for (const interfaceName in interfaces) {
-    for (const iface of interfaces[interfaceName]) {
+  let tailscaleIp = process.env.TAILSCALE_IP || null;
+  let lanIp = null;
+  const ipList = [];
+
+  for (const [name, addrs] of Object.entries(interfaces)) {
+    for (const iface of addrs) {
       if (iface.family === 'IPv4' && !iface.internal) {
-        return iface.address;
+        ipList.push({ name, address: iface.address });
+        if (!tailscaleIp && (name.toLowerCase().includes('tailscale') || iface.address.startsWith('100.'))) {
+          tailscaleIp = iface.address;
+        } else if (!lanIp && !iface.address.startsWith('100.')) {
+          lanIp = iface.address;
+        }
       }
     }
   }
-  return 'localhost';
+
+  // Prioritize Tailscale IP for remote cross-network connectivity, then LAN IP, then localhost
+  const hostIp = process.env.HOST_IP || tailscaleIp || lanIp || 'localhost';
+  return {
+    localIp: hostIp,
+    preferredIp: hostIp,
+    tailscaleIp: tailscaleIp || null,
+    lanIp: lanIp || 'localhost',
+    interfaces: ipList,
+    port: PORT
+  };
 }
 
 app.get('/api/info', (req, res) => {
-  res.json({
-    localIp: getLocalIpAddress(),
-    port: PORT
-  });
+  res.json(getNetworkInfo());
 });
 
 // Fallback all non-API GET requests to index.html for SPA routing

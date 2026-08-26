@@ -140,8 +140,10 @@ fun FooterStatusIndicator(viewModel: IndustrialViewModel) {
         }
 
         val stationName by viewModel.stationId.collectAsState()
+        val currentServerUrl by viewModel.serverUrl.collectAsState()
+        val displayHost = if (currentServerUrl.isNotBlank()) currentServerUrl.replace("http://", "").replace("https://", "") else "OFFLINE"
         Text(
-            text = "STATION: ${if (stationName.isBlank()) "UNPAIRED" else stationName} | IP: 192.168.1.14",
+            text = "STATION: ${if (stationName.isBlank()) "UNPAIRED" else stationName} | HOST: $displayHost",
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.Monospace,

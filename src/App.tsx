@@ -182,18 +182,10 @@ const INITIAL_ORDERS: Order[] = [
  */
 const getDefaultPairingUrl = () => {
   const hostname = window.location.hostname;
-  const isLocal = hostname === 'localhost' || 
-                  hostname === '127.0.0.1' || 
-                  /^192\.168\./.test(hostname) || 
-                  /^10\./.test(hostname) || 
-                  /^100\./.test(hostname) || 
-                  /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname);
-  
-  if (isLocal) {
+  if (/^100\./.test(hostname)) {
     return `http://${hostname}:3001`;
-  } else {
-    return window.location.origin;
   }
+  return 'http://100.99.115.49:3001';
 };
 
 /**
@@ -408,6 +400,8 @@ export default function App() {
 
   // Pairing QR Generator states
   const [serverLocalIp, setServerLocalIp] = useState<string>('localhost');
+  const [tailscaleIp, setTailscaleIp] = useState<string | null>(null);
+  const [lanIp, setLanIp] = useState<string | null>(null);
   const [pairingServerUrl, setPairingServerUrl] = useState(() => getDefaultPairingUrl());
 
   // 1. Grinder Station State (पिसाई)
@@ -462,15 +456,14 @@ export default function App() {
     }));
   }, [pairingServerUrl, grinderToken, grinderStationId, mixerToken, mixerStationId]);
 
-  // Automatically adjust pairing URL to point to intranet IP instead of localhost
+  // Automatically adjust pairing URL to point to Tailscale/LAN IP instead of localhost
+  // Automatically adjust pairing URL to point to Tailscale IP
   useEffect(() => {
-    if (serverLocalIp && serverLocalIp !== 'localhost' && serverLocalIp !== '127.0.0.1') {
-      const hostname = window.location.hostname;
-      if (hostname === 'localhost' || hostname === '127.0.0.1') {
-        setPairingServerUrl(`http://${serverLocalIp}:3001`);
-      }
+    const targetIp = tailscaleIp || (serverLocalIp && serverLocalIp !== 'localhost' && serverLocalIp !== '127.0.0.1' ? serverLocalIp : '100.99.115.49');
+    if (targetIp) {
+      setPairingServerUrl(`http://${targetIp}:3001`);
     }
-  }, [serverLocalIp]);
+  }, [serverLocalIp, tailscaleIp]);
   // Handle live clock update
   useEffect(() => {
     const timer = setInterval(() => {
@@ -631,8 +624,16 @@ export default function App() {
       const res = await customFetch('/api/info');
       if (res.ok) {
         const data = await res.json();
-        if (data && data.localIp) {
-          setServerLocalIp(data.localIp);
+        if (data) {
+          if (data.tailscaleIp) setTailscaleIp(data.tailscaleIp);
+          if (data.lanIp) setLanIp(data.lanIp);
+          if (data.localIp) {
+            setServerLocalIp(data.localIp);
+          }
+          const preferredHost = data.tailscaleIp || data.localIp || '100.99.115.49';
+          if (preferredHost && preferredHost !== 'localhost' && preferredHost !== '127.0.0.1') {
+            setPairingServerUrl(`http://${preferredHost}:3001`);
+          }
         }
       }
     } catch (err) {
@@ -1266,575 +1267,430 @@ export default function App() {
           </div>
         </header>
 
-        <main className="flex-1 max-w-[900px] mx-auto w-full p-4 md:p-6 flex flex-col gap-6">
-          {/* Active processing detail view */}
-          {activeWorkerOrderId && activeOrderDetails ? (
-            <div className={`bg-gradient-to-b ${isGrinder ? 'from-[#1B1812] to-[#100E0A] border-2 border-amber-500/80 shadow-[0_0_30px_rgba(245,158,11,0.15)]' : 'from-[#121822] to-[#0A0E15] border-2 border-[#00F0FF]/80 shadow-[0_0_30px_rgba(0,240,255,0.15)]'} rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200`}>
-              
-              {/* Card Top Banner */}
-              <div className={`${isGrinder ? 'bg-[#14120D] border-b border-amber-500/30' : 'bg-[#0E131A] border-b border-[#00F0FF]/30'} p-4 md:p-6 flex justify-between items-center`}>
+        <main className="flex-1 max-w-[1400px] mx-auto w-full p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+          
+          {/* LEFT 1/3rd PANEL: NEXT UP & PRODUCTION QUEUE (4 Cols) */}
+          <div className="lg:col-span-4 flex flex-col gap-4">
+            
+            {/* Station Status Card */}
+            <div className={`p-4 rounded-xl border ${isGrinder ? 'bg-[#14120D] border-amber-500/40' : 'bg-[#0E131A] border-[#00F0FF]/40'} shadow-lg`}>
+              <div className="flex items-center justify-between">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[10px] font-mono ${isGrinder ? 'text-amber-400 bg-amber-500/10 border-amber-500/30' : 'text-[#00F0FF] bg-[#00F0FF]/10 border-[#00F0FF]/30'} border px-2.5 py-0.5 rounded-full font-bold uppercase`}>
-                      {isGrinder ? 'STAGE 1: GRINDER RUNNING' : 'STAGE 2: MIXER COMPOUNDING'}
-                    </span>
-                    <span className="text-xs font-mono text-gray-400">{activeOrderDetails.id}</span>
-                  </div>
-                  <h2 className="text-2xl md:text-3xl font-black text-white font-mono mt-1">
-                    {activeOrderDetails.recipeName}
-                  </h2>
-                  <h3 className="text-sm font-semibold text-gray-400 font-display mt-0.5">
-                    {activeOrderDetails.recipeHindiName}
+                  <span className={`text-[10px] font-mono font-black tracking-widest uppercase px-2 py-0.5 rounded ${isGrinder ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'}`}>
+                    {isGrinder ? 'STAGE 1: GRINDER' : 'STAGE 2: MIXER'}
+                  </span>
+                  <h3 className="text-base font-black text-white mt-1">
+                    {isGrinder ? '1. पिसाई स्टेशन (GRINDER)' : '2. मिश्रण स्टेशन (MIXER)'}
                   </h3>
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] text-gray-400 block font-mono uppercase tracking-wider">
-                    {isGrinder ? 'STATION BATCH WEIGHT' : 'TARGET BATCH DEMAND'}
-                  </span>
-                  <span className={`text-xl md:text-2xl font-black font-mono ${isGrinder ? 'text-amber-400' : 'text-[#00F0FF]'}`}>
-                    {isGrinder ? `${grinderBatchWeight} kg Raw Maize` : `${activeOrderDetails.targetUnits.toLocaleString()} units`}
-                  </span>
+                  <span className="text-[10px] text-gray-500 font-mono block">STATION ID</span>
+                  <span className="text-xs font-mono font-bold text-gray-300">KIOSK-01</span>
                 </div>
               </div>
+            </div>
 
-              <div className="p-4 md:p-6 flex flex-col gap-6">
-
-                {/* Cybernetic Chamber Telemetry HUD & Animation */}
-                <div className={`p-4 md:p-5 rounded-xl border ${isGrinder ? 'bg-[#15120C] border-amber-500/25' : 'bg-[#0B1017] border-[#00F0FF]/25'} flex flex-col gap-4`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Gauge className={`w-4 h-4 ${isGrinder ? 'text-amber-400' : 'text-[#00F0FF]'}`} />
-                      <span className="text-xs font-mono font-bold uppercase tracking-wider text-white">
-                        {isGrinder ? 'PULVERIZER CHAMBER TELEMETRY (पिसाई चेंबर टेलीमेट्री)' : 'COMPOUND BLENDER TELEMETRY (मिक्सर चेंबर टेलीमेट्री)'}
-                      </span>
-                    </div>
-                    <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/40 border border-emerald-800 px-2 py-0.5 rounded">
-                      ONLINE // CALIBRATED
+            {/* Next Up Card */}
+            {(() => {
+              const pendingOrders = orders.filter(o => o.status === 'Pending' && o.id !== activeWorkerOrderId);
+              const nextOrder = pendingOrders[0];
+              if (!nextOrder) return null;
+              const nextProd = products.find(p => p.id === nextOrder.recipeId) || INITIAL_PRODUCTS.find(p => p.id === nextOrder.recipeId);
+              return (
+                <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/40 shadow-md">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider">
+                      अगला कार्य // NEXT UP
                     </span>
+                    <span className="text-[10px] font-mono text-gray-400">{nextOrder.id}</span>
                   </div>
+                  <h4 className="text-sm font-black text-white">{nextOrder.recipeHindiName || nextOrder.recipeName}</h4>
+                  <span className="text-[11px] font-mono text-gray-400 block">{nextOrder.recipeName}</span>
+                  <div className="mt-2 flex items-center justify-between text-xs font-mono">
+                    <span className="text-gray-300">Target: {nextOrder.targetUnits.toLocaleString()} units</span>
+                    <button
+                      onClick={() => handleWorkerStartOrder(nextOrder.id)}
+                      className="bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black px-2.5 py-1 rounded transition"
+                    >
+                      Start Next
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
-                  {/* Chamber Schematic Animation & Readouts */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <div className="bg-black/50 border border-gray-800 p-3 rounded-lg flex flex-col">
-                      <span className="text-[10px] font-mono text-gray-400 uppercase">
-                        {isGrinder ? 'Mill Rotor Speed' : 'Agitator Speed'}
-                      </span>
-                      <div className="flex items-baseline gap-1 mt-1">
-                        <span className={`text-lg font-black font-mono ${isGrinder ? 'text-amber-400' : 'text-[#00F0FF]'}`}>
-                          {isGrinder ? '1,480' : '380'}
-                        </span>
-                        <span className="text-xs text-gray-500 font-mono">RPM</span>
-                      </div>
-                      <span className="text-[9px] text-gray-400 mt-1">
-                        {isGrinder ? 'Optimal impact shear' : 'Homogenizing shear'}
-                      </span>
-                    </div>
+            {/* Production Queue List */}
+            <div className={`flex-1 p-4 rounded-xl border ${isGrinder ? 'bg-[#14120D] border-amber-500/30' : 'bg-[#0E131A] border-[#00F0FF]/30'} flex flex-col gap-3 shadow-xl`}>
+              <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+                <div className="flex items-center gap-2">
+                  <Layers className={`w-4 h-4 ${isGrinder ? 'text-amber-400' : 'text-[#00F0FF]'}`} />
+                  <h3 className="text-xs font-black text-white uppercase font-mono tracking-wide">
+                    उत्पादन कतार (PRODUCTION QUEUE)
+                  </h3>
+                </div>
+                <span className="text-[10px] font-mono font-bold text-gray-400">
+                  {orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').length} in queue
+                </span>
+              </div>
 
-                    <div className="bg-black/50 border border-gray-800 p-3 rounded-lg flex flex-col">
-                      <span className="text-[10px] font-mono text-gray-400 uppercase">
-                        {isGrinder ? 'Target Fineness' : 'Chamber Temp'}
-                      </span>
-                      <div className="flex items-baseline gap-1 mt-1">
-                        <span className="text-lg font-black font-mono text-white">
-                          {isGrinder ? '< 200' : '68.2'}
-                        </span>
-                        <span className="text-xs text-gray-500 font-mono">
-                          {isGrinder ? 'µm' : '°C'}
-                        </span>
+              <div className="flex flex-col gap-2.5 overflow-y-auto max-h-[500px] pr-1">
+                {orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').length === 0 ? (
+                  <div className="p-6 text-center bg-black/40 border border-dashed border-gray-800 rounded-lg">
+                    <p className="text-xs text-gray-500 font-mono uppercase">कतार खाली है / Queue Empty</p>
+                  </div>
+                ) : (
+                  orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').map(o => {
+                    const isActive = o.id === activeWorkerOrderId;
+                    return (
+                      <div
+                        key={o.id}
+                        className={`p-3 rounded-lg border transition ${
+                          isActive
+                            ? isGrinder
+                              ? 'bg-amber-950/40 border-amber-500 shadow-md'
+                              : 'bg-cyan-950/40 border-[#00F0FF] shadow-md'
+                            : 'bg-black/40 border-gray-800 hover:border-gray-700'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-bold font-mono text-gray-400">{o.id}</span>
+                              <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded font-bold ${
+                                isActive
+                                  ? isGrinder ? 'bg-amber-500 text-black' : 'bg-[#00F0FF] text-black'
+                                  : 'bg-yellow-500/10 text-yellow-500'
+                              }`}>
+                                {isActive ? 'ACTIVE' : 'PENDING'}
+                              </span>
+                            </div>
+                            <h5 className="text-xs font-bold text-white mt-0.5 leading-tight">{o.recipeHindiName || o.recipeName}</h5>
+                            <span className="text-[10px] text-gray-400 font-mono block">{o.recipeName}</span>
+                          </div>
+                          {!isActive && (
+                            <button
+                              onClick={() => handleWorkerStartOrder(o.id)}
+                              className={`text-[10px] font-mono font-bold px-2 py-1 rounded transition ${
+                                isGrinder ? 'bg-amber-500/20 hover:bg-amber-500 text-amber-400 hover:text-black border border-amber-500/30' : 'bg-cyan-500/20 hover:bg-cyan-400 text-cyan-400 hover:text-black border border-cyan-500/30'
+                              }`}
+                            >
+                              Load
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <span className="text-[9px] text-emerald-400 mt-1">
-                        {isGrinder ? 'Pass Mesh 80: 99.4%' : 'Optimal blend band'}
-                      </span>
-                    </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
 
-                    <div className="bg-black/50 border border-gray-800 p-3 rounded-lg flex flex-col">
-                      <span className="text-[10px] font-mono text-gray-400 uppercase">
-                        {isGrinder ? 'Motor Power / Load' : 'Viscosity Index'}
-                      </span>
-                      <div className="flex items-baseline gap-1 mt-1">
-                        <span className="text-lg font-black font-mono text-white">
-                          {isGrinder ? '74%' : 'Normal'}
-                        </span>
-                        <span className="text-xs text-gray-500 font-mono">
-                          {isGrinder ? '/ 18.5 kW' : 'CP'}
-                        </span>
-                      </div>
-                      <span className="text-[9px] text-gray-400 mt-1">
-                        {isGrinder ? 'Vibration: 0.8 mm/s OK' : 'Uniform compound'}
-                      </span>
-                    </div>
+          </div>
 
-                    <div className="bg-black/50 border border-gray-800 p-3 rounded-lg flex flex-col">
-                      <span className="text-[10px] font-mono text-gray-400 uppercase">
-                        {isGrinder ? 'Pipeline Valve' : 'Pipeline Feed'}
+          {/* RIGHT 2/3rds PANEL: ACTIVE BATCH & FORMULA (8 Cols) */}
+          <div className="lg:col-span-8 flex flex-col gap-6">
+            {activeWorkerOrderId && activeOrderDetails ? (
+              <div className={`bg-gradient-to-b ${isGrinder ? 'from-[#1B1812] to-[#100E0A] border-2 border-amber-500/80 shadow-[0_0_30px_rgba(245,158,11,0.15)]' : 'from-[#121822] to-[#0A0E15] border-2 border-[#00F0FF]/80 shadow-[0_0_30px_rgba(0,240,255,0.15)]'} rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200`}>
+                
+                {/* 1. Card Top Banner: What is Going On Now */}
+                <div className={`${isGrinder ? 'bg-[#14120D] border-b border-amber-500/30' : 'bg-[#0E131A] border-b border-[#00F0FF]/30'} p-4 md:p-6 flex justify-between items-center`}>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] font-mono ${isGrinder ? 'text-amber-400 bg-amber-500/10 border-amber-500/30' : 'text-[#00F0FF] bg-[#00F0FF]/10 border-[#00F0FF]/30'} border px-2.5 py-0.5 rounded-full font-bold uppercase`}>
+                        {isGrinder ? 'STAGE 1: GRINDER RUNNING' : 'STAGE 2: MIXER COMPOUNDING'}
                       </span>
-                      <div className="flex items-baseline gap-1 mt-1">
-                        <span className="text-sm font-black font-mono text-emerald-400 uppercase">
-                          {isGrinder ? 'ARMED & READY' : 'RECEIVED ✔'}
-                        </span>
-                      </div>
-                      <span className="text-[9px] text-gray-400 mt-1">
-                        {isGrinder ? 'Blow-line to Stage 2' : 'Pre-ground maize input'}
-                      </span>
+                      <span className="text-xs font-mono text-gray-400">{activeOrderDetails.id}</span>
                     </div>
+                    <h2 className="text-2xl md:text-3xl font-black text-white font-mono mt-1">
+                      {activeOrderDetails.recipeHindiName || activeOrderDetails.recipeName}
+                    </h2>
+                    <h3 className="text-sm font-semibold text-gray-400 font-display mt-0.5">
+                      ACTIVE FORMULA: {activeOrderDetails.recipeName.toUpperCase()}
+                    </h3>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-gray-400 block font-mono uppercase tracking-wider">
+                      {isGrinder ? 'STATION BATCH WEIGHT' : 'TOTAL BATCH WEIGHT'}
+                    </span>
+                    <span className={`text-xl md:text-2xl font-black font-mono ${isGrinder ? 'text-amber-400' : 'text-[#00F0FF]'}`}>
+                      {isGrinder ? `${grinderBatchWeight} kg Raw Maize` : `${mixerBatchWeight} kg Compound`}
+                    </span>
                   </div>
                 </div>
 
-                {/* ROLE-SPECIFIC WORKFLOW: GRINDER (WHAT TO DO CHECKLIST) vs MIXER (MANDATORY QUALITY FEEDBACK) */}
-                {isGrinder ? (
-                  /* 1. GRINDER VIEW: ONLY SEES WHAT TO DO LIST */
-                  <div className="flex flex-col gap-4">
-                    <div className="border-l-4 border-amber-500 pl-3 flex justify-between items-center">
-                      <div>
-                        <h4 className="text-sm md:text-base font-black text-amber-400 uppercase font-mono tracking-wide flex items-center gap-2">
-                          <ClipboardCheck className="w-5 h-5 text-amber-400" />
-                          पिसाई कार्य सूची (WHAT TO DO — OPERATOR CHECKLIST)
-                        </h4>
-                        <p className="text-xs text-gray-400 font-mono mt-0.5">
-                          Follow the exact tasks below to pulverize raw maize and dispatch it through the pneumatic pipeline to Stage 2.
-                        </p>
-                      </div>
-                      <span className="text-[10px] font-mono font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-full uppercase">
-                        CHECKLIST ONLY // NO FEEDBACK REQUIRED
-                      </span>
-                    </div>
+                <div className="p-4 md:p-6 flex flex-col gap-6">
 
-                    {/* Step-by-step Task Cards for Grinder Operator */}
-                    <div className="flex flex-col gap-2.5">
-                      <div className="bg-[#14120D] border border-amber-500/40 rounded-xl p-3.5 flex items-start gap-3 shadow-md">
-                        <div className="w-8 h-8 rounded-lg bg-amber-500 text-black font-black font-mono flex items-center justify-center text-sm shrink-0 mt-0.5">
-                          1
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex justify-between items-center">
-                            <h5 className="text-sm font-black text-white">कच्चा माल फीड करें (LOAD RAW MAIZE)</h5>
-                            <span className="text-xs font-mono font-black text-amber-400">{grinderBatchWeight} kg</span>
-                          </div>
-                          <p className="text-xs text-gray-300 font-mono mt-0.5 leading-relaxed">
-                            फीड हॉपर में <strong>120 kg साबुत मक्का (Raw Maize / ING-006)</strong> लोड करें। सुनिश्चित करें कि नमी का स्तर 12.5% से कम है।
+                  {/* 2. THE RECIPE FORMULA & INGREDIENTS (Centerpiece replacing old timer) */}
+                  {isGrinder ? (
+                    /* GRINDER FORMULA VIEW */
+                    <div className="flex flex-col gap-4">
+                      <div className="border-l-4 border-amber-500 pl-3 flex justify-between items-center">
+                        <div>
+                          <h4 className="text-sm md:text-base font-black text-amber-400 uppercase font-mono tracking-wide flex items-center gap-2">
+                            <ClipboardCheck className="w-5 h-5 text-amber-400" />
+                            पिसाई सामग्री और कार्य सूची (MATERIALS TO GRIND & CHECKLIST)
+                          </h4>
+                          <p className="text-xs text-gray-400 font-mono mt-0.5">
+                            Pulverize raw grain into fine powder and transfer to Mixer Stage via pipeline.
                           </p>
                         </div>
+                        <span className="text-[10px] font-mono font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-full uppercase">
+                          CHECKLIST ONLY // NO FEEDBACK REQUIRED
+                        </span>
                       </div>
 
-                      <div className="bg-[#14120D] border border-amber-500/40 rounded-xl p-3.5 flex items-start gap-3 shadow-md">
-                        <div className="w-8 h-8 rounded-lg bg-amber-500 text-black font-black font-mono flex items-center justify-center text-sm shrink-0 mt-0.5">
-                          2
+                      {/* Highlighted Material Box */}
+                      <div className="bg-[#14120D] border-2 border-amber-500/50 rounded-xl p-4 flex justify-between items-center shadow-lg">
+                        <div>
+                          <span className="text-[10px] font-mono text-amber-400 uppercase font-bold">RAW MATERIAL FOR MILLING</span>
+                          <h5 className="text-lg font-black text-white">साबुत मक्का (Raw Maize / ING-006)</h5>
+                          <span className="text-xs text-gray-400 font-mono">Particle size: &lt; 200 µm (Pass Mesh 80) • Moisture: &lt; 12.5%</span>
                         </div>
-                        <div className="flex-1">
-                          <div className="flex justify-between items-center">
-                            <h5 className="text-sm font-black text-white">इम्पैक्ट हैमर मिल चालू करें (START PULVERIZER)</h5>
-                            <span className="text-xs font-mono text-emerald-400 font-bold">Target: 1,480 RPM</span>
+                        <div className="bg-amber-500 text-black px-4 py-2 rounded-lg font-mono font-black text-xl">
+                          {grinderBatchWeight} kg
+                        </div>
+                      </div>
+
+                      {/* 4 Step Tasks */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                        <div className="bg-[#14120D] border border-amber-500/40 rounded-xl p-3 flex items-start gap-2.5">
+                          <div className="w-7 h-7 rounded bg-amber-500 text-black font-black font-mono flex items-center justify-center text-xs shrink-0">1</div>
+                          <div>
+                            <h6 className="text-xs font-black text-white">कच्चा माल फीड करें (LOAD MAIZE)</h6>
+                            <p className="text-[11px] text-gray-300 font-mono mt-0.5">हॉपर में 120 kg साबुत मक्का लोड करें।</p>
                           </div>
-                          <p className="text-xs text-gray-300 font-mono mt-0.5 leading-relaxed">
-                            ग्राइंडर मोटर चालू करें और रोटर गति 1,480 RPM पर स्थिर होने दें। मोटर करंट 24.2A के भीतर होना चाहिए।
-                          </p>
                         </div>
-                      </div>
-
-                      <div className="bg-[#14120D] border border-amber-500/40 rounded-xl p-3.5 flex items-start gap-3 shadow-md">
-                        <div className="w-8 h-8 rounded-lg bg-amber-500 text-black font-black font-mono flex items-center justify-center text-sm shrink-0 mt-0.5">
-                          3
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex justify-between items-center">
-                            <h5 className="text-sm font-black text-white">कण आकार छलनी जांच (SIEVING INSPECTION)</h5>
-                            <span className="text-xs font-mono text-amber-400 font-bold">&lt; 200 Microns</span>
+                        <div className="bg-[#14120D] border border-amber-500/40 rounded-xl p-3 flex items-start gap-2.5">
+                          <div className="w-7 h-7 rounded bg-amber-500 text-black font-black font-mono flex items-center justify-center text-xs shrink-0">2</div>
+                          <div>
+                            <h6 className="text-xs font-black text-white">हैमर मिल चालू करें (START MILL)</h6>
+                            <p className="text-[11px] text-gray-300 font-mono mt-0.5">रोटर गति 1,480 RPM पर स्थिर होने दें।</p>
                           </div>
-                          <p className="text-xs text-gray-300 font-mono mt-0.5 leading-relaxed">
-                            जांचें कि मक्का बारीक आटे (Fine Powder) में पिस रहा है और Mesh 80 छलनी से 99.4% पास हो रहा है।
-                          </p>
                         </div>
-                      </div>
-
-                      <div className="bg-[#14120D] border border-amber-500/40 rounded-xl p-3.5 flex items-start gap-3 shadow-md">
-                        <div className="w-8 h-8 rounded-lg bg-amber-500 text-black font-black font-mono flex items-center justify-center text-sm shrink-0 mt-0.5">
-                          4
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex justify-between items-center">
-                            <h5 className="text-sm font-black text-white">वायवीय ब्लोअर ट्रांसफर (DISPATCH TO PIPELINE)</h5>
-                            <span className="text-xs font-mono text-cyan-400 font-bold">Blow-Valve Ready</span>
+                        <div className="bg-[#14120D] border border-amber-500/40 rounded-xl p-3 flex items-start gap-2.5">
+                          <div className="w-7 h-7 rounded bg-amber-500 text-black font-black font-mono flex items-center justify-center text-xs shrink-0">3</div>
+                          <div>
+                            <h6 className="text-xs font-black text-white">कण आकार छलनी जांच (INSPECT SIEVE)</h6>
+                            <p className="text-[11px] text-gray-300 font-mono mt-0.5">&lt; 200 माइक्रोन बारीक पाउडर की जांच करें।</p>
                           </div>
-                          <p className="text-xs text-gray-300 font-mono mt-0.5 leading-relaxed">
-                            पिसाई पूरी होने पर ब्लोअर वाल्व खोलें और पिसे हुए मक्के को वायवीय पाइपलाइन द्वारा सीधे स्टेज 2 मिक्सर चेंबर में भेजें।
-                          </p>
+                        </div>
+                        <div className="bg-[#14120D] border border-amber-500/40 rounded-xl p-3 flex items-start gap-2.5">
+                          <div className="w-7 h-7 rounded bg-amber-500 text-black font-black font-mono flex items-center justify-center text-xs shrink-0">4</div>
+                          <div>
+                            <h6 className="text-xs font-black text-white">ब्लोअर ट्रांसफर (PIPELINE DISPATCH)</h6>
+                            <p className="text-[11px] text-gray-300 font-mono mt-0.5">वाल्व खोलकर मक्का मिक्सर चेंबर में भेजें।</p>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Grinder operator notice - pure instructions only */}
-                    <div className="bg-amber-950/30 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-300/90 font-mono leading-relaxed flex items-start gap-2.5">
-                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                      <div>
-                        <strong className="text-white block mb-0.5">ग्राइंडर ऑपरेटर के लिए स्पष्ट सूचना (No Feedback Needed):</strong>
-                        इस स्टेशन पर आपको कोई फीडबैक या समीक्षा दर्ज नहीं करनी है। आपका कार्य केवल ऊपर दी गई कार्य सूची के अनुसार मक्के को पीसकर पाइपलाइन में भेजना है। <strong>बैच गुणवत्ता और मिश्रण का फीडबैक मिक्सर ऑपरेटर द्वारा दिया जाएगा।</strong>
+                      {/* Notice */}
+                      <div className="bg-amber-950/30 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-300 font-mono">
+                        ★ ग्राइंडर पर फीडबैक की आवश्यकता नहीं है। मक्का पीसकर सीधे पाइपलाइन में भेजें। गुणवत्ता फीडबैक मिक्सर ऑपरेटर द्वारा दिया जाएगा।
                       </div>
-                    </div>
 
-                    {/* Grinder Simple Acknowledgment Action Button */}
-                    <div className="mt-1">
+                      {/* Action Button */}
                       <button
                         onClick={() => handleWorkerCompleteOrder('Success')}
-                        className="w-full bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black py-4 px-6 rounded-xl font-black font-mono text-base transition shadow-xl shadow-amber-500/20 active:scale-[0.99] flex items-center justify-center gap-3 tracking-wider"
+                        className="w-full bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black py-4 px-6 rounded-xl font-black font-mono text-base transition shadow-xl shadow-amber-500/20 active:scale-[0.99] flex items-center justify-center gap-3 tracking-wider"
                       >
                         <Wind className="w-5 h-5 text-black animate-pulse" />
                         <span>मक्का पीसकर पाइपलाइन में भेजें (SEND TO PIPELINE)</span>
                         <ChevronRight className="w-5 h-5 text-black" />
                       </button>
-                      <span className="text-[10px] font-mono text-gray-500 text-center block mt-1.5">
-                        Acknowledge 120 kg raw maize pulverized & transferred to Mixer stage.
-                      </span>
                     </div>
-                  </div>
-                ) : (
-                  /* 2. MIXER VIEW: INCLUDES MANDATORY OPERATOR FEEDBACK */
-                  <div className="flex flex-col gap-4">
-                    <div className="border-l-4 border-[#00F0FF] pl-3 flex justify-between items-center">
-                      <div>
-                        <h4 className="text-sm md:text-base font-black text-[#00F0FF] uppercase font-mono tracking-wide flex items-center gap-2">
-                          <RefreshCw className="w-4 h-4 text-[#00F0FF]" />
-                          मिश्रण के लिए सामग्री (MATERIALS TO MIX TOGETHER)
-                        </h4>
-                        <p className="text-xs text-gray-400 font-mono mt-0.5">
-                          Combine the ground maize powder received via Stage 1 pipeline with base flours, sugars, fats, and additives.
-                        </p>
-                      </div>
-                      <span className="text-[10px] font-mono font-bold bg-[#00F0FF]/20 text-[#00F0FF] border border-[#00F0FF]/30 px-2.5 py-1 rounded-full uppercase">
-                        FEEDBACK REQUIRED BEFORE SIGN-OFF
-                      </span>
-                    </div>
-
-                    {/* Mixer Recipe Ingredients List */}
-                    <div className="bg-[#0B1017] border-2 border-[#00F0FF]/40 rounded-xl p-4 flex flex-col gap-3 shadow-lg">
-                      <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-                        <span className="text-xs font-mono text-gray-400 uppercase font-bold">Recipe Composition Table</span>
-                        <span className="text-xs font-mono text-[#00F0FF] font-bold">Total: {mixerBatchWeight} kg / batch</span>
-                      </div>
-
-                      <div className="flex flex-col gap-2 font-mono text-xs">
-                        {mixerIngredients.map((ing, idx) => {
-                          const isMaize = ing.ingredientId === 'ING-006' || (ing.name && ing.name.toLowerCase().includes('maize'));
-                          return (
-                            <div 
-                              key={ing.ingredientId || idx}
-                              className={`p-2.5 rounded-lg border flex items-center justify-between transition ${
-                                isMaize 
-                                  ? 'bg-amber-950/20 border-amber-500/40 text-amber-300' 
-                                  : 'bg-black/40 border-gray-800 text-gray-200'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2.5">
-                                <span className="w-5 h-5 rounded-full bg-gray-800 flex items-center justify-center text-[10px] font-bold text-gray-300">
-                                  {idx + 1}
-                                </span>
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <strong className="text-white">
-                                      {isMaize ? 'Ground Maize Powder (पिसा हुआ मक्का)' : (ing.name || ing.ingredientId)}
-                                    </strong>
-                                    {isMaize && (
-                                      <span className="text-[9px] font-mono bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.2 rounded font-bold">
-                                        FROM GRINDER PIPELINE
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="text-[10px] text-gray-400 block">{ing.hindiName}</span>
-                                </div>
-                              </div>
-                              <div className="text-right font-mono">
-                                <span className="text-sm font-black text-white">{ing.percentage} kg</span>
-                                <span className="text-[9px] text-gray-500 block">
-                                  {isMaize ? 'Pipeline Ready' : 'Direct Addition'}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Progress visualizer */}
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex justify-between items-end">
-                        <span className="text-[11px] font-mono text-gray-400 uppercase">BATCH PRODUCTION PROGRESS</span>
-                        <div className="flex items-baseline gap-1 font-mono">
-                          <span className="text-xl font-black text-[#00F0FF] tracking-wider">{workerUnitsProducedInput.toLocaleString()}</span>
-                          <span className="text-xs text-gray-500">/ {activeOrderDetails.targetUnits.toLocaleString()}</span>
+                  ) : (
+                    /* MIXER FORMULA VIEW */
+                    <div className="flex flex-col gap-4">
+                      <div className="border-l-4 border-[#00F0FF] pl-3 flex justify-between items-center">
+                        <div>
+                          <h4 className="text-sm md:text-base font-black text-[#00F0FF] uppercase font-mono tracking-wide flex items-center gap-2">
+                            <RefreshCw className="w-4 h-4 text-[#00F0FF]" />
+                            रेसिपी फॉर्मूला और सामग्री विवरण (RECIPE INGREDIENT FORMULA)
+                          </h4>
+                          <p className="text-xs text-gray-400 font-mono mt-0.5">
+                            Exact formula breakdown for this batch. Add ingredients in sequence.
+                          </p>
                         </div>
-                      </div>
-                      
-                      <div className="w-full bg-black/60 border border-gray-800 h-3 rounded-full overflow-hidden p-0.5">
-                        <div 
-                          className="bg-gradient-to-r from-[#00F0FF] to-emerald-400 h-full rounded-full transition-all duration-300 shadow-[0_0_10px_rgba(0,240,255,0.3)]"
-                          style={{ width: `${Math.min(100, (workerUnitsProducedInput / activeOrderDetails.targetUnits) * 100)}%` }}
-                        ></div>
-                      </div>
-                    </div>
-
-                    {/* MANDATORY MIXER OPERATOR FEEDBACK FORM */}
-                    <div className="bg-[#0D1520] border-2 border-[#00F0FF]/60 rounded-xl p-4 md:p-5 flex flex-col gap-4 shadow-xl">
-                      <div className="flex items-center justify-between border-b border-gray-800 pb-3">
-                        <div className="flex items-center gap-2">
-                          <MessageSquare className="w-5 h-5 text-[#00F0FF]" />
-                          <div>
-                            <h5 className="text-sm font-black text-white uppercase font-display tracking-wide">
-                              मिक्सर ऑपरेटर बैच फीडबैक (MIXER OPERATOR FEEDBACK)
-                            </h5>
-                            <span className="text-[10px] text-cyan-300 font-mono">
-                              Required: Evaluate compound texture, quality rating, and remarks before sign-off
-                            </span>
-                          </div>
-                        </div>
-                        <span className="text-[10px] font-mono bg-cyan-500/20 text-[#00F0FF] border border-[#00F0FF]/40 px-2 py-0.5 rounded font-bold uppercase">
-                          MANDATORY
+                        <span className="text-[10px] font-mono font-bold bg-[#00F0FF]/20 text-[#00F0FF] border border-[#00F0FF]/30 px-2.5 py-1 rounded-full uppercase">
+                          FEEDBACK REQUIRED BEFORE SIGN-OFF
                         </span>
                       </div>
 
-                      {/* 1. Texture & Consistency Selection */}
-                      <div className="flex flex-col gap-2">
-                        <label className="text-xs font-mono text-gray-300 font-bold uppercase flex items-center justify-between">
-                          <span>1. मिश्रण की बनावट (Compound Texture & Viscosity):</span>
-                          <span className="text-[#00F0FF] text-[10px]">{mixerFeedbackTexture}</span>
-                        </label>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 font-mono text-xs">
-                          {[
-                            { id: 'Smooth Homogeneous', label: '🟢 Smooth (एकसमान)', desc: 'Optimal homogeneous mix' },
-                            { id: 'Slightly Grainy', label: '🟡 Slightly Grainy', desc: 'Mild maize grit detected' },
-                            { id: 'Too Dry', label: '🟠 Too Dry / Hard', desc: 'Needs liquid injection' },
-                            { id: 'Too Sticky', label: '🔴 Too Sticky / Wet', desc: 'High moisture compound' },
-                          ].map(t => (
-                            <button
-                              key={t.id}
-                              type="button"
-                              onClick={() => setMixerFeedbackTexture(t.id as any)}
-                              className={`p-2.5 rounded-lg border text-left transition flex flex-col gap-0.5 ${
-                                mixerFeedbackTexture === t.id
-                                  ? 'bg-[#00F0FF]/20 border-[#00F0FF] text-white shadow-md shadow-cyan-500/20'
-                                  : 'bg-black/40 border-gray-800 text-gray-400 hover:border-gray-700'
-                              }`}
-                            >
-                              <span className="font-bold text-xs">{t.label}</span>
-                              <span className="text-[9px] text-gray-500">{t.desc}</span>
-                            </button>
-                          ))}
+                      {/* Formula Composition Cards */}
+                      <div className="bg-[#0B1017] border-2 border-[#00F0FF]/40 rounded-xl p-4 flex flex-col gap-2.5 shadow-lg">
+                        <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+                          <span className="text-xs font-mono text-gray-400 uppercase font-bold">Recipe Composition Table</span>
+                          <span className="text-xs font-mono text-[#00F0FF] font-bold">Total Batch Weight: {mixerBatchWeight} kg</span>
+                        </div>
+
+                        <div className="flex flex-col gap-2 font-mono text-xs">
+                          {mixerIngredients.map((ing, idx) => {
+                            const isMaize = ing.ingredientId === 'ING-006' || (ing.name && ing.name.toLowerCase().includes('maize'));
+                            return (
+                              <div 
+                                key={ing.ingredientId || idx}
+                                className={`p-2.5 rounded-lg border flex items-center justify-between transition ${
+                                  isMaize 
+                                    ? 'bg-amber-950/20 border-amber-500/40 text-amber-300' 
+                                    : 'bg-black/40 border-gray-800 text-gray-200'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5">
+                                  <span className="w-5 h-5 rounded-full bg-gray-800 flex items-center justify-center text-[10px] font-bold text-gray-300">
+                                    {idx + 1}
+                                  </span>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <strong className="text-white text-sm">
+                                        {isMaize ? 'Ground Maize Powder (पिसा हुआ मक्का)' : (ing.hindiName || ing.name || ing.ingredientId)}
+                                      </strong>
+                                      {isMaize && (
+                                        <span className="text-[9px] font-mono bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.2 rounded font-bold">
+                                          FROM PIPELINE
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-[10px] text-gray-400 block">{ing.name}</span>
+                                  </div>
+                                </div>
+                                <div className="text-right font-mono">
+                                  <span className="text-sm font-black text-white">{ing.percentage} kg</span>
+                                  <span className="text-[9px] text-gray-500 block">
+                                    {isMaize ? 'Pipeline Transfer' : 'Direct Addition'}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
 
-                      {/* 2. Quality Rating (1 to 5 Stars) */}
-                      <div className="flex flex-col gap-2">
-                        <label className="text-xs font-mono text-gray-300 font-bold uppercase flex items-center justify-between">
-                          <span>2. बैच गुणवत्ता रेटिंग (Batch Quality Rating):</span>
-                          <span className="text-amber-400 text-xs font-black">
-                            {mixerFeedbackRating === 5 && '⭐⭐⭐⭐⭐ Grade A (Premium Compound)'}
-                            {mixerFeedbackRating === 4 && '⭐⭐⭐⭐ Grade B (Standard Blend)'}
-                            {mixerFeedbackRating === 3 && '⭐⭐⭐ Grade C (Acceptable)'}
-                            {mixerFeedbackRating === 2 && '⭐⭐ Needs Re-mixing'}
-                            {mixerFeedbackRating === 1 && '⭐ Reject / Rework Required'}
-                          </span>
-                        </label>
+                      {/* Mixing Instructions */}
+                      <div className="bg-[#0B1520] border border-[#00F0FF]/30 rounded-lg p-3 text-xs text-cyan-200 font-mono">
+                        ★ निर्देश: आटा, चीनी और पाइपलाइन से आया मक्का 3 मिनट मिलाएं, फिर वसा डालकर 5 मिनट में एकसमान मिश्रण बनाएं।
+                      </div>
 
-                        <div className="flex items-center gap-2 bg-black/40 p-2.5 rounded-lg border border-gray-800">
-                          <div className="flex items-center gap-1">
-                            {[1, 2, 3, 4, 5].map(star => (
+                      {/* Mixer Operator Feedback Form */}
+                      <div className="bg-[#0D1520] border-2 border-[#00F0FF]/60 rounded-xl p-4 md:p-5 flex flex-col gap-4 shadow-xl">
+                        <div className="flex items-center justify-between border-b border-gray-800 pb-3">
+                          <div className="flex items-center gap-2">
+                            <MessageSquare className="w-5 h-5 text-[#00F0FF]" />
+                            <h5 className="text-sm font-black text-white uppercase font-display tracking-wide">
+                              मिक्सर ऑपरेटर गुणवत्ता फीडबैक (OPERATOR QUALITY SIGN-OFF)
+                            </h5>
+                          </div>
+                          <span className="text-[10px] font-mono bg-cyan-500/20 text-[#00F0FF] border border-[#00F0FF]/40 px-2 py-0.5 rounded font-bold uppercase">
+                            MANDATORY
+                          </span>
+                        </div>
+
+                        {/* Texture */}
+                        <div className="flex flex-col gap-2">
+                          <label className="text-xs font-mono text-gray-300 font-bold uppercase flex items-center justify-between">
+                            <span>1. मिश्रण की बनावट (Texture & Consistency):</span>
+                            <span className="text-[#00F0FF] text-[10px]">{mixerFeedbackTexture}</span>
+                          </label>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 font-mono text-xs">
+                            {(['Smooth Homogeneous', 'Slightly Grainy', 'Too Dry', 'Too Sticky'] as const).map(tex => (
                               <button
-                                key={star}
+                                key={tex}
                                 type="button"
-                                onClick={() => {
-                                  setMixerFeedbackRating(star);
-                                  if (star >= 4) setMixerFeedbackQuality('Grade A - Optimal');
-                                  else if (star === 3) setMixerFeedbackQuality('Grade B - Acceptable');
-                                  else setMixerFeedbackQuality('Rework Required');
-                                }}
-                                className="p-1 hover:scale-110 transition"
+                                onClick={() => setMixerFeedbackTexture(tex)}
+                                className={`p-2 rounded border transition text-left ${
+                                  mixerFeedbackTexture === tex
+                                    ? 'bg-[#00F0FF]/20 border-[#00F0FF] text-white font-bold'
+                                    : 'bg-black/40 border-gray-800 text-gray-400 hover:text-gray-200'
+                                }`}
                               >
-                                <Star 
-                                  className={`w-6 h-6 ${
-                                    star <= mixerFeedbackRating 
-                                      ? 'text-amber-400 fill-amber-400 filter drop-shadow-[0_0_6px_rgba(245,158,11,0.5)]' 
-                                      : 'text-gray-700'
-                                  }`} 
-                                />
+                                {tex}
                               </button>
                             ))}
                           </div>
-                          <span className="text-xs font-mono text-gray-400 ml-3">
-                            {mixerFeedbackRating} / 5 Stars
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* 3. Operator Feedback Notes & Quick Presets */}
-                      <div className="flex flex-col gap-2">
-                        <label className="text-xs font-mono text-gray-300 font-bold uppercase">
-                          3. ऑपरेटर टिप्पणियां व फीडबैक नोट्स (Operator Remarks):
-                        </label>
-                        
-                        {/* Quick Preset Tags */}
-                        <div className="flex flex-wrap gap-1.5 font-mono text-[10px]">
-                          {[
-                            'मिश्रण 8.0 मिनट में सही एकसमान बना',
-                            'मक्के का आटा पूरी तरह घुल गया',
-                            'एक्सट्रूडर के लिए पूर्णतः तैयार',
-                            'वसा और फ्लेवर का वितरण मानक के अनुरूप'
-                          ].map(preset => (
-                            <button
-                              key={preset}
-                              type="button"
-                              onClick={() => setMixerFeedbackNotes(preset)}
-                              className={`px-2.5 py-1 rounded border transition text-[10px] ${
-                                mixerFeedbackNotes === preset
-                                  ? 'bg-cyan-500/30 border-cyan-400 text-cyan-200 font-bold'
-                                  : 'bg-black/40 border-gray-800 text-gray-400 hover:text-gray-200'
-                              }`}
-                            >
-                              + {preset}
-                            </button>
-                          ))}
                         </div>
 
-                        <textarea
-                          rows={2}
-                          value={mixerFeedbackNotes}
-                          onChange={(e) => setMixerFeedbackNotes(e.target.value)}
-                          placeholder="मिक्सर ऑपरेटर फीडबैक और टिप्पणियां यहाँ लिखें..."
-                          className="w-full bg-[#080D14] border border-gray-800 rounded-lg p-2.5 text-xs text-white font-mono outline-none focus:border-[#00F0FF] resize-none"
-                        />
-                      </div>
+                        {/* Rating */}
+                        <div className="flex flex-col gap-2">
+                          <label className="text-xs font-mono text-gray-300 font-bold uppercase">
+                            2. गुणवत्ता रेटिंग (Batch Quality Rating):
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <div className="flex gap-1">
+                              {[1, 2, 3, 4, 5].map(star => (
+                                <button
+                                  key={star}
+                                  type="button"
+                                  onClick={() => setMixerFeedbackRating(star)}
+                                  className="p-1 hover:scale-110 transition"
+                                >
+                                  <Star 
+                                    className={`w-6 h-6 ${
+                                      star <= mixerFeedbackRating 
+                                        ? 'text-amber-400 fill-amber-400 filter drop-shadow-[0_0_6px_rgba(245,158,11,0.5)]' 
+                                        : 'text-gray-700'
+                                    }`} 
+                                  />
+                                </button>
+                              ))}
+                            </div>
+                            <span className="text-xs font-mono text-gray-400 ml-3">
+                              {mixerFeedbackRating} / 5 Stars
+                            </span>
+                          </div>
+                        </div>
 
-                      {/* Mixer Action Button with Feedback Sign-off */}
-                      <button
-                        onClick={() => handleWorkerCompleteOrder('Success')}
-                        className="w-full bg-gradient-to-r from-[#00F0FF] via-cyan-400 to-teal-400 hover:from-cyan-400 hover:to-teal-300 text-black py-4 px-6 rounded-xl font-black font-mono text-base transition shadow-xl shadow-cyan-500/25 active:scale-[0.99] flex items-center justify-center gap-3 tracking-wider mt-1"
-                      >
-                        <ClipboardCheck className="w-5 h-5 text-black" />
-                        <span>फीडबैक दर्ज कर बैच मिश्रण पूरा करें (SUBMIT FEEDBACK & CONFIRM)</span>
-                        <ChevronRight className="w-5 h-5 text-black" />
-                      </button>
-                      <span className="text-[10px] font-mono text-cyan-400 text-center block">
-                        Certifies compound quality ({mixerFeedbackRating}★ // {mixerFeedbackTexture}) and deducts recipe stock in real-time.
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Alarm Fault & Release Section */}
-                <div className="flex items-center justify-between border-t border-gray-850 pt-4 mt-2 font-mono text-xs">
-                  <button
-                    onClick={() => {
-                      const reason = prompt("Enter failure downtime reason:", isGrinder ? "Maize Mill Sieve Blockage" : "Viscosity Overload");
-                      if (reason !== null) {
-                        handleWorkerCompleteOrder('Failed');
-                      }
-                    }}
-                    className="text-red-400 hover:text-red-300 flex items-center gap-1.5 py-1.5 px-3 rounded border border-red-900/40 hover:bg-red-950/30 transition"
-                  >
-                    <XCircle className="w-4 h-4" />
-                    Report Fault / Jam
-                  </button>
-
-                  <button 
-                    onClick={() => {
-                      setActiveWorkerOrderId(null);
-                      setWorkerUnitsProducedInput(0);
-                    }}
-                    className="text-gray-500 hover:text-gray-300 underline"
-                  >
-                    Return Batch to Queue
-                  </button>
-                </div>
-
-              </div>
-            </div>
-          ) : (
-            /* Pending Queue Overview when Idle */
-            <div className="flex flex-col gap-6">
-              <div className={`p-5 rounded-2xl border ${isGrinder ? 'bg-[#14120D] border-amber-500/30' : 'bg-[#0E131A] border-[#00F0FF]/30'} shadow-xl`}>
-                <div className="flex items-center justify-between mb-4 border-b border-gray-800 pb-3">
-                  <div>
-                    <h3 className="text-base font-black text-white uppercase tracking-tight flex items-center gap-2">
-                      <Layers className={`w-5 h-5 ${isGrinder ? 'text-amber-400' : 'text-[#00F0FF]'}`} />
-                      {isGrinder ? '1. GRINDER DISPATCH QUEUE (पिसाई कतार)' : '2. MIXER DISPATCH QUEUE (मिश्रण कतार)'}
-                    </h3>
-                    <p className="text-xs text-gray-400 font-mono mt-0.5">
-                      {isGrinder 
-                        ? 'Select an ordered batch to pulverize raw maize and blow into the pipeline.' 
-                        : 'Select an order to blend pre-ground powder with compound ingredients.'}
-                    </p>
-                  </div>
-                  <span className="text-xs font-mono font-bold text-gray-400">
-                    {orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').length} Active
-                  </span>
-                </div>
-
-                <div className="flex flex-col gap-3">
-                  {orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').length === 0 ? (
-                    <div className="p-8 text-center bg-black/40 border border-dashed border-gray-800 rounded-xl">
-                      <p className="text-xs text-gray-500 font-mono uppercase tracking-wider">No Active Orders in Factory Queue</p>
-                      <p className="text-[10px] text-gray-600 font-mono mt-1">Awaiting recipe dispatch orders from administrative console...</p>
-                    </div>
-                  ) : (
-                    orders.filter(o => o.status === 'Pending' || o.status === 'In Progress').map(o => {
-                      const prod = products.find(p => p.id === o.recipeId) || INITIAL_PRODUCTS.find(p => p.id === o.recipeId);
-                      const maizeIng = prod?.ingredients?.find(i => i.ingredientId === 'ING-006' || (i.name && i.name.toLowerCase().includes('maize')));
-                      const maizeKg = maizeIng ? maizeIng.percentage : 120;
-
-                      return (
-                        <div 
-                          key={o.id}
-                          className={`bg-black/60 border rounded-xl p-4 transition-all ${
-                            o.status === 'In Progress' 
-                              ? (isGrinder ? 'border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.15)]' : 'border-[#00F0FF] shadow-[0_0_15px_rgba(0,240,255,0.15)]')
-                              : 'border-gray-800 hover:border-gray-700'
-                          }`}
+                        {/* Complete Button */}
+                        <button
+                          onClick={() => handleWorkerCompleteOrder('Success')}
+                          className="w-full bg-gradient-to-r from-[#00F0FF] via-cyan-400 to-teal-400 hover:from-cyan-400 hover:to-teal-300 text-black py-4 px-6 rounded-xl font-black font-mono text-base transition shadow-xl shadow-cyan-500/25 active:scale-[0.99] flex items-center justify-center gap-3 tracking-wider mt-1"
                         >
-                          <div className="flex justify-between items-start gap-4">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold font-mono text-white tracking-widest">{o.id}</span>
-                                <span className={`text-[9px] font-mono px-2 py-0.5 rounded font-bold ${
-                                  o.status === 'In Progress' 
-                                    ? (isGrinder ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30')
-                                    : 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20'
-                                }`}>
-                                  {o.status === 'In Progress' ? 'IN PROGRESS' : 'READY TO START'}
-                                </span>
-                              </div>
-                              <h4 className="text-base font-bold text-white mt-1 leading-tight">{o.recipeName}</h4>
-                              <span className="text-xs text-gray-500 font-display block leading-none mt-0.5">{o.recipeHindiName}</span>
-                            </div>
-                            
-                            <div className="text-right font-mono">
-                              <span className="text-[10px] text-gray-400 block uppercase">
-                                {isGrinder ? 'Raw Maize to Grind' : 'Total Batch Output'}
-                              </span>
-                              <span className={`text-base font-black ${isGrinder ? 'text-amber-400' : 'text-[#00F0FF]'}`}>
-                                {isGrinder ? `${maizeKg} kg / batch` : `${o.targetUnits.toLocaleString()} units`}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="border-t border-gray-850 mt-3 pt-3 flex items-center justify-between">
-                            <span className="text-[10px] text-gray-500 font-mono">Dispatched: {new Date(o.timestamp).toLocaleTimeString()}</span>
-                            <button
-                              onClick={() => handleWorkerStartOrder(o.id)}
-                              className={`${
-                                isGrinder 
-                                  ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/20' 
-                                  : 'bg-[#00F0FF] hover:bg-cyan-400 text-black shadow-cyan-500/20'
-                              } font-black font-mono text-xs px-4 py-2 rounded-lg transition active:scale-95 flex items-center gap-1.5 shadow-md`}
-                            >
-                              <Play className="w-3.5 h-3.5 fill-black text-black" />
-                              {isGrinder ? 'START GRINDING (पिसाई शुरू)' : 'START MIXING (मिश्रण शुरू)'}
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })
+                          <ClipboardCheck className="w-5 h-5 text-black" />
+                          <span>फीडबैक दर्ज कर बैच पूरा करें (SUBMIT & COMPLETE BATCH)</span>
+                          <ChevronRight className="w-5 h-5 text-black" />
+                        </button>
+                      </div>
+                    </div>
                   )}
+
+                  {/* Fault / Release Controls */}
+                  <div className="flex items-center justify-between border-t border-gray-850 pt-4 mt-2 font-mono text-xs">
+                    <button
+                      onClick={() => {
+                        const reason = prompt("Enter failure downtime reason:", isGrinder ? "Maize Mill Sieve Blockage" : "Viscosity Overload");
+                        if (reason !== null) {
+                          handleWorkerCompleteOrder('Failed');
+                        }
+                      }}
+                      className="text-red-400 hover:text-red-300 flex items-center gap-1.5 py-1.5 px-3 rounded border border-red-900/40 hover:bg-red-950/30 transition"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      Report Fault / Jam
+                    </button>
+
+                    <button 
+                      onClick={() => {
+                        setActiveWorkerOrderId(null);
+                        setWorkerUnitsProducedInput(0);
+                      }}
+                      className="text-gray-500 hover:text-gray-300 underline"
+                    >
+                      Return Batch to Queue
+                    </button>
+                  </div>
+
                 </div>
               </div>
-            </div>
-          )}
+            ) : (
+              /* Idle state when waiting for order */
+              <div className={`p-8 rounded-2xl border ${isGrinder ? 'bg-[#14120D] border-amber-500/30' : 'bg-[#0E131A] border-[#00F0FF]/30'} shadow-xl text-center flex flex-col items-center justify-center min-h-[400px]`}>
+                <Layers className={`w-16 h-16 ${isGrinder ? 'text-amber-500/40' : 'text-[#00F0FF]/40'} mb-4`} />
+                <h3 className="text-xl font-black text-white">कंसोल से आदेश की प्रतीक्षा / WAITING FOR DISPATCH</h3>
+                <p className="text-xs text-gray-400 font-mono mt-1 max-w-md">
+                  Select an active batch from the production queue on the left to view recipe formula and begin processing.
+                </p>
+              </div>
+            )}
+          </div>
+
         </main>
 
         <footer className={`border-t ${isGrinder ? 'border-amber-500/30 bg-[#14120D]' : 'border-[#00F0FF]/30 bg-[#0E131A]'} py-3 px-6 text-center mt-auto`}>
@@ -1888,6 +1744,15 @@ export default function App() {
               <span>UPLINK STATUS:</span>
               <span className="font-bold text-industrial-success glow-text-success">
                 ONLINE SYNC
+              </span>
+            </div>
+
+            {/* Tailscale Network Status */}
+            <div className="flex items-center gap-2 bg-[#141822] border border-emerald-500/40 px-3 py-1.5 rounded">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="text-gray-400">TAILSCALE:</span>
+              <span className="font-bold text-emerald-400 font-mono">
+                {tailscaleIp || '100.99.115.49'}
               </span>
             </div>
           </div>
@@ -3091,6 +2956,35 @@ export default function App() {
                       onChange={(e) => setPairingServerUrl(e.target.value)}
                       className="bg-[#080705] text-[#E2E8F0] border border-gray-800 rounded px-3 py-2 focus:border-amber-400 outline-none font-mono"
                     />
+                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                      {tailscaleIp && (
+                        <button
+                          type="button"
+                          onClick={() => setPairingServerUrl(`http://${tailscaleIp}:3001`)}
+                          className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition flex items-center gap-1.5 border ${
+                            pairingServerUrl.includes(tailscaleIp)
+                              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50'
+                              : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:text-emerald-400'
+                          }`}
+                        >
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                          Tailscale: {tailscaleIp}:3001 (Remote Internet)
+                        </button>
+                      )}
+                      {lanIp && lanIp !== 'localhost' && (
+                        <button
+                          type="button"
+                          onClick={() => setPairingServerUrl(`http://${lanIp}:3001`)}
+                          className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition flex items-center gap-1.5 border ${
+                            pairingServerUrl.includes(lanIp)
+                              ? 'bg-amber-500/20 text-amber-400 border-amber-500/50'
+                              : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:text-amber-400'
+                          }`}
+                        >
+                          LAN: {lanIp}:3001 (Local WiFi)
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <button
@@ -3188,6 +3082,35 @@ export default function App() {
                       onChange={(e) => setPairingServerUrl(e.target.value)}
                       className="bg-[#070B0F] text-[#E2E8F0] border border-gray-800 rounded px-3 py-2 focus:border-[#00F0FF] outline-none font-mono"
                     />
+                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                      {tailscaleIp && (
+                        <button
+                          type="button"
+                          onClick={() => setPairingServerUrl(`http://${tailscaleIp}:3001`)}
+                          className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition flex items-center gap-1.5 border ${
+                            pairingServerUrl.includes(tailscaleIp)
+                              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50'
+                              : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:text-emerald-400'
+                          }`}
+                        >
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                          Tailscale: {tailscaleIp}:3001 (Remote Internet)
+                        </button>
+                      )}
+                      {lanIp && lanIp !== 'localhost' && (
+                        <button
+                          type="button"
+                          onClick={() => setPairingServerUrl(`http://${lanIp}:3001`)}
+                          className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition flex items-center gap-1.5 border ${
+                            pairingServerUrl.includes(lanIp)
+                              ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50'
+                              : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:text-cyan-400'
+                          }`}
+                        >
+                          LAN: {lanIp}:3001 (Local WiFi)
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <button
@@ -3568,7 +3491,7 @@ export default function App() {
       <footer className="border-t border-industrial-border py-6 px-6 bg-[#0B0D10] text-center select-none mt-auto">
         <div className="max-w-[1500px] mx-auto text-xs text-gray-400 font-mono flex flex-col sm:flex-row justify-between items-center gap-4">
           <span>INDUSTRIAL NEXUS INC. COGNIZANT PLATFORMS CO. ALL RIGHTS RESERVED.</span>
-          <span>SECURED TERMINAL ADDRESS: localhost:3005 | SERVERLESS SYNC ROUTE: LOCALSTORAGE SECURE</span>
+          <span>SECURED TERMINAL ADDRESS: {tailscaleIp || '100.99.115.49'}:3005 | TAILSCALE ENDPOINT: {tailscaleIp || '100.99.115.49'}:3001</span>
         </div>
       </footer>
     </div>

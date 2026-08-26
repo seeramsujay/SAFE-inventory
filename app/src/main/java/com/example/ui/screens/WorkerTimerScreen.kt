@@ -1,7 +1,6 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.*
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -9,34 +8,106 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.ProductEntity
 import com.example.ui.IndustrialViewModel
 import com.example.ui.OrderInfo
 import com.example.ui.components.SwipeToConfirmSlider
 import kotlinx.coroutines.delay
 
-fun getIngredientDisplayName(id: String): String {
+data class IngredientDetail(
+    val id: String,
+    val nameEn: String,
+    val nameHi: String,
+    val weightKg: Double,
+    val percentage: Double,
+    val isPipelineGround: Boolean,
+    val isGrinderRaw: Boolean,
+    val dosingType: String
+)
+
+fun getIngredientDetail(id: String, percentage: Double): IngredientDetail {
     return when (id) {
-        "ING-006", "raw_maize", "maize" -> "Raw Maize (साबुत मक्का)"
-        "ING-001", "wheat_flour" -> "Wheat Flour (गेंहू का आटा)"
-        "ING-002", "refined_sugar" -> "Refined Sugar (चीनी)"
-        "ING-003", "vegetable_fats" -> "Vegetable Fats (वनस्पति वसा)"
-        "ING-004", "flavor_agents", "cream_flavoring" -> "Cream Flavoring (क्रीम फ्लेवर)"
-        "ING-005", "premium_additive" -> "Premium Additive (प्रीमियम एडिटिव)"
-        else -> id.replace("_", " ").split(" ").joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
+        "ING-006", "raw_maize", "maize" -> IngredientDetail(
+            id = id,
+            nameEn = "Raw Maize",
+            nameHi = "साबुत मक्का",
+            weightKg = percentage,
+            percentage = percentage,
+            isPipelineGround = false,
+            isGrinderRaw = true,
+            dosingType = "GRINDER HOPPER"
+        )
+        "ING-001", "wheat_flour" -> IngredientDetail(
+            id = id,
+            nameEn = "Wheat Flour",
+            nameHi = "गेंहू का आटा",
+            weightKg = percentage,
+            percentage = percentage,
+            isPipelineGround = false,
+            isGrinderRaw = false,
+            dosingType = "MIXER HOPPER"
+        )
+        "ING-002", "refined_sugar", "sugar" -> IngredientDetail(
+            id = id,
+            nameEn = "Refined Sugar",
+            nameHi = "रिफाइंड चीनी",
+            weightKg = percentage,
+            percentage = percentage,
+            isPipelineGround = false,
+            isGrinderRaw = false,
+            dosingType = "MIXER HOPPER"
+        )
+        "ING-003", "vegetable_fats", "fats" -> IngredientDetail(
+            id = id,
+            nameEn = "Vegetable Fats",
+            nameHi = "वनस्पति वसा",
+            weightKg = percentage,
+            percentage = percentage,
+            isPipelineGround = false,
+            isGrinderRaw = false,
+            dosingType = "LIQUID DOSING"
+        )
+        "ING-004", "flavor_agents", "cream_flavoring" -> IngredientDetail(
+            id = id,
+            nameEn = "Cream Flavoring",
+            nameHi = "क्रीम फ्लेवर",
+            weightKg = percentage,
+            percentage = percentage,
+            isPipelineGround = false,
+            isGrinderRaw = false,
+            dosingType = "PRE-MIX ADDITIVE"
+        )
+        "ING-005", "premium_additive" -> IngredientDetail(
+            id = id,
+            nameEn = "Premium Additive",
+            nameHi = "प्रीमियम एडिटिव",
+            weightKg = percentage,
+            percentage = percentage,
+            isPipelineGround = false,
+            isGrinderRaw = false,
+            dosingType = "MICRO DOSING"
+        )
+        else -> IngredientDetail(
+            id = id,
+            nameEn = id.replace("_", " ").split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } },
+            nameHi = id,
+            weightKg = percentage,
+            percentage = percentage,
+            isPipelineGround = false,
+            isGrinderRaw = false,
+            dosingType = "STANDARD HOPPER"
+        )
     }
 }
 
@@ -44,13 +115,12 @@ fun getIngredientDisplayName(id: String): String {
 @Composable
 fun WorkerTimerScreen(
     viewModel: IndustrialViewModel,
-    onNavigateToExtruder: () -> Unit,
-    onNavigateToEmergency: () -> Unit
+    onNavigateToExtruder: () -> Unit = {},
+    onNavigateToEmergency: () -> Unit = {}
 ) {
     val batchId by viewModel.batchId.collectAsState()
     val completedBatches by viewModel.activeBatchCountCompleted.collectAsState()
     val totalBatches by viewModel.activeBatchCountTotal.collectAsState()
-    val remainingSec by viewModel.timerRemainingSec.collectAsState()
     val activeProductNameHindi by viewModel.activeProductNameHindi.collectAsState()
     val activeProductNameEnglish by viewModel.activeProductNameEnglish.collectAsState()
     val activeProductColorHex by viewModel.activeProductColorHex.collectAsState()
@@ -68,6 +138,11 @@ fun WorkerTimerScreen(
         products.find { it.englishName.equals(activeProductNameEnglish, ignoreCase = true) }
     }
 
+    // Identify next upcoming order in the queue
+    val nextPendingOrder = remember(ordersQueue) {
+        ordersQueue.firstOrNull { it.status == "PENDING" }
+    }
+
     val cardColor = remember(activeProductColorHex, isGrinder) {
         if (isGrinder) {
             Color(0xFFD97706) // Industrial Amber for Grinder
@@ -80,63 +155,33 @@ fun WorkerTimerScreen(
         }
     }
 
-    val totalBatchWeight = remember(activeProduct, isGrinder) {
-        var sum = 0.0
+    // Parse structured formula items from JSON
+    val formulaItems = remember(activeProduct, isGrinder) {
+        val list = mutableListOf<IngredientDetail>()
         if (activeProduct != null && !activeProduct.mixtureRatios.isNullOrBlank()) {
             try {
                 val jsonArray = org.json.JSONArray(activeProduct.mixtureRatios)
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
                     val ingId = obj.optString("ingredientId")
-                    val isGrindIng = obj.optString("stage") == "grinder" || obj.optBoolean("requiresGrinding", false) || ingId.contains("006") || ingId.contains("maize", ignoreCase = true)
-                    val qty = obj.optDouble("percentage", 0.0)
-                    if (isGrinder) {
-                        if (isGrindIng) sum += qty
-                    } else {
-                        sum += qty
-                    }
-                }
-            } catch (e: Exception) {}
-        }
-        if (sum == 0.0) {
-            if (isGrinder) 120.0 else 600.0
-        } else sum
-    }
-
-    val nominalDuration = remember(activeProduct) {
-        activeProduct?.nominalBatchDurationSec ?: 480
-    }
-
-    val uphKgSec = remember(totalBatchWeight, nominalDuration) {
-        totalBatchWeight / nominalDuration
-    }
-
-    val uphKgHr = remember(totalBatchWeight, nominalDuration) {
-        (totalBatchWeight * 3600.0) / nominalDuration
-    }
-
-    val ingredientsList = remember(activeProduct, activeProductNameEnglish, isGrinder) {
-        val list = mutableListOf<String>()
-        if (activeProduct != null && !activeProduct.mixtureRatios.isNullOrBlank()) {
-            try {
-                val jsonArray = org.json.JSONArray(activeProduct.mixtureRatios)
-                for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.getJSONObject(i)
-                    val ingId = obj.optString("ingredientId")
-                    val isGrindIng = obj.optString("stage") == "grinder" || obj.optBoolean("requiresGrinding", false) || ingId.contains("006") || ingId.contains("maize", ignoreCase = true)
+                    val isGrind = obj.optString("stage") == "grinder" || obj.optBoolean("requiresGrinding", false) || ingId.contains("006") || ingId.contains("maize", ignoreCase = true)
                     val qty = obj.optDouble("percentage", 0.0)
                     if (qty > 0) {
+                        val base = getIngredientDetail(ingId, qty)
                         if (isGrinder) {
-                            // Grinder ONLY shows materials that need to be ground
-                            if (isGrindIng) {
-                                list.add("${getIngredientDisplayName(ingId)}: ${qty.toInt()} kg [GRIND TO FINE POWDER]")
-                            }
+                            if (isGrind) list.add(base)
                         } else {
-                            // Mixer shows materials to mix, labeling ground materials from pipeline
-                            if (isGrindIng) {
-                                list.add("Ground Maize Powder (पिसा हुआ मक्का): ${qty.toInt()} kg [FROM PIPELINE]")
+                            if (isGrind) {
+                                list.add(
+                                    base.copy(
+                                        nameEn = "Ground Maize Powder",
+                                        nameHi = "पिसा हुआ मक्का पाउडर",
+                                        isPipelineGround = true,
+                                        dosingType = "PIPELINE FROM STAGE 1"
+                                    )
+                                )
                             } else {
-                                list.add("${getIngredientDisplayName(ingId)}: ${qty.toInt()} kg [MIX]")
+                                list.add(base)
                             }
                         }
                     }
@@ -145,13 +190,36 @@ fun WorkerTimerScreen(
         }
         if (list.isEmpty()) {
             if (isGrinder) {
-                list.add("Raw Maize (साबुत मक्का): 120 kg [GRIND TO FINE POWDER]")
+                list.add(getIngredientDetail("ING-006", 120.0))
             } else {
-                list.add("Ground Maize Powder (पिसा हुआ मक्का): 120 kg [FROM PIPELINE]")
-                list.addAll(getIngredientsForProduct(activeProductNameEnglish))
+                list.add(
+                    IngredientDetail(
+                        id = "ING-006",
+                        nameEn = "Ground Maize Powder",
+                        nameHi = "पिसा हुआ मक्का",
+                        weightKg = 120.0,
+                        percentage = 120.0,
+                        isPipelineGround = true,
+                        isGrinderRaw = false,
+                        dosingType = "PIPELINE TRANSFER"
+                    )
+                )
+                list.add(getIngredientDetail("ING-001", 240.0))
+                list.add(getIngredientDetail("ING-002", 150.0))
+                list.add(getIngredientDetail("ING-003", 60.0))
+                list.add(getIngredientDetail("ING-004", 30.0))
             }
         }
         list
+    }
+
+    val totalBatchWeight = remember(formulaItems) {
+        val sum = formulaItems.sumOf { it.weightKg }
+        if (sum == 0.0) (if (isGrinder) 120.0 else 600.0) else sum
+    }
+
+    val nominalDuration = remember(activeProduct) {
+        activeProduct?.nominalBatchDurationSec ?: 480
     }
 
     var showSuccessFlash by remember { mutableStateOf(false) }
@@ -160,256 +228,256 @@ fun WorkerTimerScreen(
     var selectedRating by remember { mutableStateOf(5) }
     var feedbackNotes by remember { mutableStateOf("मिश्रण सही बना, मक्का अच्छी तरह घुल गया") }
 
-    val formattedTime = remember(remainingSec) {
-        val minutes = remainingSec / 60
-        val seconds = remainingSec % 60
-        String.format("%02d:%02d", minutes, seconds)
-    }
-
     Box(modifier = Modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxSize()) {
             
-            // LEFT PANEL: Progress Queue (35% Width)
+            // =========================================================================
+            // LEFT PANEL: WHAT IS NEXT & PRODUCTION QUEUE (~33% Width)
+            // =========================================================================
             Column(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .weight(0.35f)
+                    .weight(0.33f)
                     .background(Color.White)
                     .border(2.dp, Color(0xFF1A1A1A))
-                    .padding(20.dp),
+                    .padding(16.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Screen indicator / Mode toggle helper
+                    // Station Banner Header
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(if (isGrinder) Color(0xFFFFFBEB) else Color(0xFFF0FDF4))
+                            .border(1.5.dp, if (isGrinder) Color(0xFFD97706) else Color(0xFF00875A))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = if (isGrinder) "1. GRINDER TERMINAL (पिसाई)" else "2. MIXER TERMINAL (मिश्रण)",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            color = if (isGrinder) Color(0xFFD97706) else Color(0xFF00875A)
-                        )
-                        Text(
-                            text = batchId,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = FontFamily.Monospace,
-                            color = Color(0xFF1A1A1A)
-                        )
-                    }
-
-                    // Active Industrial Card: shows the currently dispatched product
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(cardColor)
-                            .border(3.dp, Color(0xFF1A1A1A))
-                            .padding(16.dp)
-                    ) {
-                        if (!hasActiveOrder) {
+                        Column {
                             Text(
-                                text = "आदेश की प्रतीक्षा",
-                                color = Color.White.copy(alpha = 0.7f),
-                                fontSize = 24.sp,
+                                text = if (isGrinder) "1. GRINDER (पिसाई)" else "2. MIXER (मिश्रण)",
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Black,
-                                fontFamily = FontFamily.SansSerif
+                                fontFamily = FontFamily.SansSerif,
+                                color = if (isGrinder) Color(0xFFB45309) else Color(0xFF00875A)
                             )
                             Text(
-                                text = "AWAITING ORDER FROM CONSOLE",
-                                color = Color.White.copy(alpha = 0.5f),
-                                fontSize = 10.sp,
+                                text = if (isGrinder) "STAGE 1 // MILLING" else "STAGE 2 // BLENDING",
+                                fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        } else {
-                            Text(
-                                text = activeProductNameHindi,
-                                color = Color.White,
-                                fontSize = 28.sp,
-                                fontWeight = FontWeight.Black,
-                                fontFamily = FontFamily.SansSerif
-                            )
-                            Text(
-                                text = "ACTIVE: ${activeProductNameEnglish.uppercase()} [${if (isGrinder) "STAGE 1: GRIND" else "STAGE 2: MIX"}]",
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(top = 2.dp)
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = if (isGrinder) "पिसाई के लिए सामग्री (MATERIALS TO GRIND):" else "मिश्रण के लिए सामग्री (MATERIALS TO MIX):",
-                                color = Color.White.copy(alpha = 0.9f),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.SansSerif
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            ingredientsList.forEach { ing ->
-                                Text(
-                                    text = "\u2022 $ing",
-                                    color = Color.White.copy(alpha = 0.85f),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    modifier = Modifier.padding(vertical = 1.dp)
-                                )
-                            }
-                            
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Divider(color = Color.White.copy(alpha = 0.3f), thickness = 1.dp)
-                            Spacer(modifier = Modifier.height(6.dp))
-                            
-                            Text(
-                                text = "TOTAL WEIGHT: ${totalBatchWeight.toInt()} kg",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Black,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Text(
-                                text = String.format("BATCH TIME: %.1f minutes", nominalDuration / 60.0),
-                                color = Color.White.copy(alpha = 0.9f),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
+                                color = Color.Gray
                             )
                         }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // High contrast status bubble (Plain Black / English Numbers)
                         Box(
                             modifier = Modifier
                                 .background(Color(0xFF1A1A1A))
-                                .border(1.dp, Color.White)
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = if (hasActiveOrder) "BATCH: $completedBatches / $totalBatches" else "BATCH: -- / --",
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Black,
+                                text = if (batchId.isNotBlank()) batchId else "KIOSK-01",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    // ── WHAT IS NEXT: NEXT UP IN PRODUCTION CARD ──────────────────
+                    Text(
+                        text = "अगला कार्य (WHAT IS NEXT):",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color(0xFF1A1A1A)
+                    )
+
+                    if (nextPendingOrder != null) {
+                        val nextColor = try {
+                            Color(android.graphics.Color.parseColor(nextPendingOrder.colorHex))
+                        } catch (e: Exception) {
+                            Color(0xFF1A1A1A)
+                        }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFFFF7ED))
+                                .border(2.dp, Color(0xFFEA580C))
+                                .padding(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = nextPendingOrder.productNameHindi,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color(0xFF9A3412)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color(0xFFEA580C))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "NEXT UP",
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Black,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                            Text(
+                                text = nextPendingOrder.productNameEnglish.uppercase(),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = Color.Gray,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "कुल बैच: ${nextPendingOrder.totalBatchesScheduled} Batches Scheduled",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = Color.Black
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFF4F5F7))
+                                .border(1.dp, Color(0xFFD8DADC))
+                                .padding(10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "कोई आगामी आदेश नहीं (No Pending Jobs)",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Gray,
                                 fontFamily = FontFamily.Monospace
                             )
                         }
                     }
 
-                    // Full day prebatching queue list
+                    // ── PRODUCTION QUEUE (उत्पादन कतार) ──────────────────────────
                     Text(
-                        text = "PRODUCTION QUEUE (उत्पादन कतार):",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
+                        text = "उत्पादन कतार (PRODUCTION QUEUE):",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
                         fontFamily = FontFamily.Monospace,
-                        color = Color(0xFF1A1A1A).copy(alpha = 0.6f)
+                        color = Color(0xFF1A1A1A)
                     )
 
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            .border(1.dp, Color(0xFFD8DADC))
-                            .background(Color(0xFFF8F9FA))
+                            .border(1.5.dp, Color(0xFFD8DADC))
+                            .background(Color(0xFFFAFAFA))
                             .padding(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        items(ordersQueue) { ord ->
-                            val borderCol = try {
-                                Color(android.graphics.Color.parseColor(ord.colorHex))
-                            } catch (e: Exception) {
-                                Color(0xFF1A1A1A)
-                            }
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color.White)
-                                    .border(2.dp, if (ord.status == "ACTIVE") borderCol else borderCol.copy(alpha = 0.4f))
-                                    .padding(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                        if (ordersQueue.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(20.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = ord.productNameHindi,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.Black
+                                        text = "कतार खाली है / Queue is empty",
+                                        fontSize = 11.sp,
+                                        color = Color.Gray,
+                                        fontFamily = FontFamily.Monospace
                                     )
-                                    Box(
-                                        modifier = Modifier
-                                            .background(
-                                                when (ord.status) {
-                                                    "ACTIVE" -> Color(0xFF00875A)
-                                                    "PENDING" -> Color(0xFFE65100)
-                                                    else -> Color(0xFF7A869A)
-                                                }
-                                            )
-                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                }
+                            }
+                        } else {
+                            items(ordersQueue) { ord ->
+                                val borderCol = try {
+                                    Color(android.graphics.Color.parseColor(ord.colorHex))
+                                } catch (e: Exception) {
+                                    Color(0xFF1A1A1A)
+                                }
+                                val isActive = ord.status == "ACTIVE"
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(if (isActive) Color(0xFFF0FDF4) else Color.White)
+                                        .border(
+                                            width = if (isActive) 2.dp else 1.dp,
+                                            color = if (isActive) Color(0xFF00875A) else borderCol.copy(alpha = 0.5f)
+                                        )
+                                        .padding(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = ord.status,
-                                            color = Color.White,
-                                            fontSize = 8.sp,
-                                            fontWeight = FontWeight.Black,
-                                            fontFamily = FontFamily.Monospace
+                                            text = ord.productNameHindi,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.Black
                                         )
+                                        Box(
+                                            modifier = Modifier
+                                                .background(
+                                                    when (ord.status) {
+                                                        "ACTIVE" -> Color(0xFF00875A)
+                                                        "PENDING" -> Color(0xFFE65100)
+                                                        else -> Color(0xFF7A869A)
+                                                    }
+                                                )
+                                                .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                        ) {
+                                            Text(
+                                                text = ord.status,
+                                                color = Color.White,
+                                                fontSize = 8.sp,
+                                                fontWeight = FontWeight.Black,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
                                     }
+                                    Text(
+                                        text = ord.productNameEnglish.uppercase(),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.Gray,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Batches: ${ord.completedBatches} / ${ord.totalBatchesScheduled}",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.Black,
+                                        fontFamily = FontFamily.Monospace
+                                    )
                                 }
-                                Text(
-                                    text = ord.productNameEnglish.uppercase(),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.Gray,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "Batches: ${ord.completedBatches} / ${ord.totalBatchesScheduled}",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.Black,
-                                    fontFamily = FontFamily.Monospace
-                                )
                             }
                         }
                     }
-
-                    // View Extruder details button
-                    Button(
-                        onClick = onNavigateToExtruder,
-                        shape = RoundedCornerShape(0),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.White,
-                            contentColor = Color.Black
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp)
-                            .border(2.dp, Color(0xFF1A1A1A))
-                    ) {
-                        Text(
-                            text = "मशीन स्थिति / VIEW DIAGRAM →",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Context Menu Actions / Break controls
+                // Bottom Shift & Emergency Controls
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -464,23 +532,23 @@ fun WorkerTimerScreen(
                         onClick = onNavigateToEmergency,
                         shape = RoundedCornerShape(0),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFD32F2F), // Safety Red
+                            containerColor = Color(0xFFD32F2F),
                             contentColor = Color.White
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
+                            .height(44.dp)
                             .border(2.dp, Color(0xFF1A1A1A))
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            Icon(Icons.Default.Warning, "Emergency stop", modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Warning, "Emergency stop", modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = "EMERGENCY / आपातकालीन",
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -488,14 +556,16 @@ fun WorkerTimerScreen(
                 }
             }
             
-            // RIGHT PANEL: Single-Action Execution Zone (65% Width)
+            // =========================================================================
+            // RIGHT PANEL: WHAT IS GOING ON NOW & THE FORMULA (~67% Width)
+            // =========================================================================
             Column(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .weight(0.65f)
+                    .weight(0.67f)
                     .background(Color(0xFFF4F5F7))
                     .border(2.dp, Color(0xFF1A1A1A))
-                    .padding(24.dp),
+                    .padding(20.dp),
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -507,22 +577,22 @@ fun WorkerTimerScreen(
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(
-                            text = "🕐",
-                            fontSize = 54.sp,
+                            text = "⏳",
+                            fontSize = 52.sp,
                             textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = "कंसोल से आदेश की प्रतीक्षा",
                             color = Color.Black,
-                            fontSize = 22.sp,
+                            fontSize = 26.sp,
                             fontWeight = FontWeight.Black,
                             textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "WAITING FOR DISPATCH FROM ADMIN CONSOLE",
-                            color = Color(0xFF1A1A1A).copy(alpha = 0.5f),
+                            text = "AWAITING PRODUCTION ORDER FROM ADMIN CONSOLE",
+                            color = Color(0xFF1A1A1A).copy(alpha = 0.6f),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
@@ -531,165 +601,356 @@ fun WorkerTimerScreen(
                         Spacer(modifier = Modifier.height(24.dp))
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp)
-                                .background(Color(0xFFD0D0D0))
-                                .border(2.dp, Color(0xFF9E9E9E)),
+                                .fillMaxWidth(0.8f)
+                                .height(52.dp)
+                                .background(Color(0xFFE2E8F0))
+                                .border(2.dp, Color(0xFF94A3B8)),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = "⟶  कोई सक्रिय बैच नहीं / NO ACTIVE BATCH",
-                                color = Color(0xFF9E9E9E),
-                                fontSize = 11.sp,
+                                color = Color(0xFF64748B),
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             )
                         }
                     }
                 } else {
-                    // ── ACTIVE BATCH STATE ─────────────────────────────────────
-                    if (isGrinder) {
-                        // GRINDER VIEW: OPERATOR ONLY SEES LIST WHAT TO DO AND ALL
+                    // ── ACTIVE BATCH & FORMULA VIEW ────────────────────────────
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        // 1. ACTIVE HEADER CARD: WHAT IS GOING ON NOW
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                .background(cardColor)
+                                .border(3.dp, Color(0xFF1A1A1A))
+                                .padding(16.dp)
                         ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color.White.copy(alpha = 0.25f))
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Text(
+                                        text = if (isGrinder) "STAGE 1: GRINDER RUNNING (पिसाई)" else "STAGE 2: MIXER COMPOUNDING (मिश्रण)",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Black,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color(0xFF1A1A1A))
+                                        .border(1.dp, Color.White)
+                                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = "BATCH $completedBatches / $totalBatches",
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Black,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
                             Text(
-                                text = "पिसाई कार्य सूची (WHAT TO DO — CHECKLIST)",
-                                color = Color(0xFFB45309),
-                                fontSize = 18.sp,
+                                text = activeProductNameHindi,
+                                color = Color.White,
+                                fontSize = 32.sp,
                                 fontWeight = FontWeight.Black,
                                 fontFamily = FontFamily.SansSerif
                             )
                             Text(
-                                text = "नीचे दिए गए चरणों का पालन करें और पिसे हुए मक्के को पाइपलाइन में भेजें:",
-                                color = Color(0xFF1A1A1A).copy(alpha = 0.7f),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
+                                text = "ACTIVE FORMULA: ${activeProductNameEnglish.uppercase()}",
+                                color = Color.White.copy(alpha = 0.9f),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
                             )
 
-                            // 4 Clear Tasks
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Divider(color = Color.White.copy(alpha = 0.35f), thickness = 1.dp)
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Key Batch Info Badges
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color.Black.copy(alpha = 0.35f))
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "कुल बैच वजन: ${totalBatchWeight.toInt()} kg",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color.Black.copy(alpha = 0.35f))
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = String.format("अनुमानित समय: %.1f min", nominalDuration / 60.0),
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+
+                        // 2. THE FORMULA & INGREDIENT LISTING (IN PLACE OF THE OLD TIMER)
+                        if (isGrinder) {
+                            // ── GRINDER STAGE: PULVERIZATION FORMULA & OPERATOR TASKS ─
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(Color(0xFFFFFBEB))
-                                    .border(2.dp, Color(0xFFD97706))
-                                    .padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    .weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Text(
-                                    text = "1. लोड: 120 kg साबुत मक्का (ING-006) हॉपर में डालें",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.Black
-                                )
-                                Text(
-                                    text = "2. ग्राइंडर चालू: हैमर मिल रोटर 1,480 RPM पर स्थिर करें",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.Black
-                                )
-                                Text(
-                                    text = "3. छलनी जांच: मक्का < 200 माइक्रोन बारीक पाउडर में पिसना चाहिए",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.Black
-                                )
-                                Text(
-                                    text = "4. पाइपलाइन ट्रांसफर: ब्लोअर वाल्व खोलकर मक्का मिक्सर को भेजें",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.Black
-                                )
-                            }
-
-                            // Notice: No feedback needed at grinder
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color(0xFFFEF3C7))
-                                    .border(1.dp, Color(0xFFF59E0B))
-                                    .padding(8.dp)
-                            ) {
-                                Text(
-                                    text = "★ सूचना: ग्राइंडर पर कोई फीडबैक फॉर्म नहीं भरना है। केवल ऊपर दी गई सूची पूरी करें। गुणवत्ता फीडबैक मिक्सर ऑपरेटर द्वारा दिया जाएगा।",
-                                    color = Color(0xFF92400E),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
-                        }
-                    } else {
-                        // MIXER VIEW: COMPOUND BLENDING WITH COUNTDOWN & FEEDBACK REQUIREMENT
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(top = 8.dp)
-                        ) {
-                            Text(
-                                text = "मिश्रण बैच चल रहा है...",
-                                color = Color.Black,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Black,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "पूरा होने पर स्वाइप करके गुणवत्ता फीडबैक दर्ज करें।",
-                                color = Color(0xFF00875A),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-
-                        // Dynamic Progress Countdown Ticker Ring (MM:SS)
-                        Box(
-                            modifier = Modifier.size(200.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            val progressRatio = (remainingSec.toFloat() / nominalDuration.toFloat()).coerceIn(0f, 1f)
-                            Canvas(modifier = Modifier.fillMaxSize()) {
-                                drawCircle(
-                                    color = Color.White,
-                                    radius = size.minDimension / 2 - 8.dp.toPx()
-                                )
-                                drawArc(
-                                    color = Color(0xFFD8DADC),
-                                    startAngle = 0f,
-                                    sweepAngle = 360f,
-                                    useCenter = false,
-                                    style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Butt)
-                                )
-                                drawArc(
-                                    color = Color(0xFF00875A),
-                                    startAngle = -90f,
-                                    sweepAngle = 360f * progressRatio,
-                                    useCenter = false,
-                                    style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Butt)
-                                )
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = formattedTime,
-                                    color = Color.Black,
-                                    fontSize = 44.sp,
+                                    text = "पिसाई सामग्री और फॉर्मूला (MATERIALS TO GRIND):",
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.Black,
                                     fontFamily = FontFamily.Monospace,
-                                    letterSpacing = (-1).sp
+                                    color = Color(0xFFB45309)
                                 )
+
+                                // Highlighted Raw Material Box
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFFFFFBEB))
+                                        .border(2.dp, Color(0xFFD97706))
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "साबुत मक्का (Raw Maize / ING-006)",
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = Color.Black
+                                        )
+                                        Text(
+                                            text = "कण आकार: < 200 माइक्रोन बारीक पाउडर | नमी: < 12.5%",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF78350F),
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color(0xFFD97706))
+                                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = "${totalBatchWeight.toInt()} kg",
+                                            fontSize = 20.sp,
+                                            fontWeight = FontWeight.Black,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+
                                 Text(
-                                    text = "समय शेष (REMAINING)",
-                                    color = Color(0xFF1A1A1A).copy(alpha = 0.6f),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
+                                    text = "चरणबद्ध कार्य सूची (STEP-BY-STEP CHECKLIST):",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Black,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = Color(0xFF1A1A1A)
                                 )
+
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    item {
+                                        TaskCheckItem(
+                                            step = "1",
+                                            title = "लोड (LOAD)",
+                                            desc = "हॉपर में 120 kg साबुत मक्का लोड करें। विदेशी कणों की जांच करें।"
+                                        )
+                                    }
+                                    item {
+                                        TaskCheckItem(
+                                            step = "2",
+                                            title = "ग्राइंडर चालू (START)",
+                                            desc = "हैमर मिल चालू कर रोटर 1,480 RPM पर स्थिर होने दें।"
+                                        )
+                                    }
+                                    item {
+                                        TaskCheckItem(
+                                            step = "3",
+                                            title = "छलनी जांच (INSPECT)",
+                                            desc = "पाउडर 200µm से बारीक पिसना चाहिए (Mesh 80 Pass 99.4%)।"
+                                        )
+                                    }
+                                    item {
+                                        TaskCheckItem(
+                                            step = "4",
+                                            title = "पाइपलाइन ट्रांसफर (TRANSFER)",
+                                            desc = "न्यूमेटिक ब्लोअर वाल्व खोलें और पिसा हुआ मक्का मिक्सर को भेजें।"
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            // ── MIXER STAGE: COMPLETE FORMULA RECIPE BREAKDOWN ────────
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "मिश्रण रेसिपी फॉर्मूला (RECIPE INGREDIENT FORMULA):",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Black,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = Color(0xFF00875A)
+                                    )
+                                    Text(
+                                        text = "कुल: ${totalBatchWeight.toInt()} kg",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Black,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = Color(0xFF1A1A1A)
+                                    )
+                                }
+
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f)
+                                        .border(1.5.dp, Color(0xFFD8DADC))
+                                        .background(Color.White)
+                                        .padding(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    items(formulaItems) { item ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(if (item.isPipelineGround) Color(0xFFFFFBEB) else Color(0xFFF8FAFC))
+                                                .border(
+                                                    width = 1.5.dp,
+                                                    color = if (item.isPipelineGround) Color(0xFFD97706) else Color(0xFFCBD5E1)
+                                                )
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = item.nameHi,
+                                                        fontSize = 15.sp,
+                                                        fontWeight = FontWeight.Black,
+                                                        color = Color.Black
+                                                    )
+                                                    if (item.isPipelineGround) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .background(Color(0xFFD97706))
+                                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = "पाइपलाइन से (STAGE 1)",
+                                                                color = Color.White,
+                                                                fontSize = 9.sp,
+                                                                fontWeight = FontWeight.Black,
+                                                                fontFamily = FontFamily.Monospace
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                Text(
+                                                    text = "${item.nameEn} • ${item.dosingType}",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.Gray,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(if (item.isPipelineGround) Color(0xFFD97706) else Color(0xFF1A1A1A))
+                                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "${item.weightKg.toInt()} kg",
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    color = Color.White
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Mixing instructions footer
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFFF0FDF4))
+                                        .border(1.dp, Color(0xFF86EFAC))
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "★ निर्देश: ड्राई इंग्रीडिएंट्स + पाइपलाइन मक्का 3 मिनट मिलाएं, फिर लिक्विड वसा डालकर 5 मिनट होमोजिनाइज करें।",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF166534)
+                                    )
+                                }
                             }
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // 3. EXECUTION ACTION SLIDER AT BOTTOM
                     SwipeToConfirmSlider(
                         text = if (isGrinder) "मक्का पीसकर पाइपलाइन में भेजें (SEND TO PIPELINE)" else "फीडबैक दर्ज कर बैच पूरा करें (SWIPE FOR FEEDBACK)",
                         successText = if (isGrinder) "पिसाई पूरी - पाइपलाइन में भेजा गया" else "फीडबैक आवश्यक / FEEDBACK REQUIRED",
@@ -930,30 +1191,45 @@ fun WorkerTimerScreen(
     }
 }
 
-fun getIngredientsForProduct(productNameEnglish: String): List<String> {
-    val nameNormalized = productNameEnglish.lowercase().trim()
-    return when {
-        nameNormalized == "cream special" || nameNormalized == "creme special" || nameNormalized == "cream premium" || nameNormalized == "creme premium" -> listOf(
-            "Wheat Flour (गेंहू का आटा): 240 kg",
-            "Refined Sugar (चीनी): 210 kg",
-            "Vegetable Fats (वनस्पति वसा): 90 kg",
-            "Cream Flavoring (क्रीम फ्लेवर): 60 kg"
-        )
-        nameNormalized == "premium plus" || nameNormalized == "premium" -> listOf(
-            "Wheat Flour (गेंहू का आटा): 180 kg",
-            "Refined Sugar (चीनी): 270 kg",
-            "Vegetable Fats (वनस्पति वसा): 90 kg",
-            "Premium Additive (प्रीमियम एडिटिव): 60 kg"
-        )
-        nameNormalized == "standard blend" -> listOf(
-            "Wheat Flour (गेंहू का आटा): 420 kg",
-            "Refined Sugar (चीनी): 120 kg",
-            "Vegetable Fats (वनस्पति वसा): 60 kg"
-        )
-        else -> listOf(
-            "Wheat Flour (गेंहू का आटा): 360 kg",
-            "Refined Sugar (चीनी): 120 kg",
-            "Vegetable Fats (वनस्पति वसा): 120 kg"
-        )
+@Composable
+fun TaskCheckItem(step: String, title: String, desc: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White)
+            .border(1.5.dp, Color(0xFFCBD5E1))
+            .padding(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .background(Color(0xFFD97706)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = step,
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Black,
+                color = Color.Black
+            )
+            Text(
+                text = desc,
+                fontSize = 11.sp,
+                color = Color(0xFF475569),
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }
+

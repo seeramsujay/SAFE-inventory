@@ -37,6 +37,9 @@ class IndustrialViewModel(
     private val _stationType = MutableStateFlow("mixer")
     val stationType: StateFlow<String> = _stationType.asStateFlow()
 
+    private val _serverUrl = MutableStateFlow(com.example.data.PreferencesManager.getServerUrl(application))
+    val serverUrl: StateFlow<String> = _serverUrl.asStateFlow()
+
     // 3. Login / Shift Entry Session State
     val workerIdInput = MutableStateFlow("")
     val pinInput = MutableStateFlow("")
@@ -123,6 +126,7 @@ class IndustrialViewModel(
         com.example.data.PreferencesManager.savePairing(getApplication(), cleanedUrl, token, stationId, finalType)
         _stationId.value = stationId
         _stationType.value = finalType
+        _serverUrl.value = cleanedUrl
         workerIdInput.value = stationId
         pinInput.value = token
         triggerOfflineSync()
@@ -132,6 +136,7 @@ class IndustrialViewModel(
         com.example.data.PreferencesManager.clearPairing(getApplication())
         _stationId.value = ""
         _stationType.value = "mixer"
+        _serverUrl.value = ""
         workerIdInput.value = ""
         pinInput.value = ""
     }
