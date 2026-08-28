@@ -108,9 +108,6 @@ class IndustrialViewModel(
         activeBatchCountTotal.value = item.totalBatchesInOrder
         activeBatchCountCompleted.value = item.batchNumber - 1
         batchId.value = item.batchId
-        val prod = products.value.find { it.englishName.equals(item.productNameEnglish, ignoreCase = true) || it.name.equals(item.productNameHindi, ignoreCase = true) }
-        val nominalDuration = prod?.nominalBatchDurationSec ?: 480
-        _timerRemainingSec.value = nominalDuration
     }
 
     // Break/Lunch status states
@@ -154,6 +151,7 @@ class IndustrialViewModel(
         if (com.example.data.PreferencesManager.isPaired(application)) {
             workerIdInput.value = savedStation
             pinInput.value = com.example.data.PreferencesManager.getStationToken(application)
+            _currentScreen.value = "worker_timer"
             triggerOfflineSync()
         }
     }
@@ -173,7 +171,9 @@ class IndustrialViewModel(
 
     // 2. Active Screen State/Layout state
     // Screens: "login", "worker_timer", "worker_extruder", "emergency", "admin"
-    private val _currentScreen = MutableStateFlow("login")
+    private val _currentScreen = MutableStateFlow(
+        if (com.example.data.PreferencesManager.isPaired(application)) "worker_timer" else "login"
+    )
     val currentScreen: StateFlow<String> = _currentScreen.asStateFlow()
 
     fun savePairing(stationId: String, token: String, url: String, stationType: String = "") {
@@ -191,6 +191,7 @@ class IndustrialViewModel(
         _serverUrl.value = cleanedUrl
         workerIdInput.value = stationId
         pinInput.value = token
+        _currentScreen.value = "worker_timer"
         triggerOfflineSync()
     }
 
@@ -201,6 +202,7 @@ class IndustrialViewModel(
         _serverUrl.value = ""
         workerIdInput.value = ""
         pinInput.value = ""
+        _currentScreen.value = "login"
     }
 
     // 4. Active Job state (Worker views) — all initialized to neutral/empty state.
@@ -216,28 +218,17 @@ class IndustrialViewModel(
     val nextPendingOrderNameHindi = MutableStateFlow("--")
     val nextPendingOrderNameEnglish = MutableStateFlow("--")
 
-    // Countdown Timer logic: Starting from 6:42 (402 seconds)
-    private val _timerRemainingSec = MutableStateFlow(402)
+    // Countdown Timer logic removed as per requirements (kept zeroed/dummy for backwards compatibility)
+    private val _timerRemainingSec = MutableStateFlow(0)
     val timerRemainingSec: StateFlow<Int> = _timerRemainingSec.asStateFlow()
 
-    private var timerJob: Job? = null
+    private var monitorJob: Job? = null
 
     private fun startLiveMonitoring() {
-        // Ticking countdown timer — only runs while an active order is dispatched
-        timerJob = viewModelScope.launch {
+        monitorJob = viewModelScope.launch {
             while (true) {
                 delay(1000)
-                val hasActiveOrder = activeProductNameEnglish.value.isNotBlank()
-                if (hasActiveOrder && _timerRemainingSec.value > 0) {
-                    _timerRemainingSec.value -= 1
-                } else if (!hasActiveOrder) {
-                    // No active order — hold timer at 0 so the ring is empty
-                    _timerRemainingSec.value = 0
-                }
-                // Timer reaching 0 with an active order means the batch time elapsed;
-                // the worker can still complete it via swipe whenever ready.
-
-                // Fluctuating temperature between 176 and 181
+                // Fluctuating temperature between 176 and 181 for diagnostics
                 val offset = Random.nextInt(-2, 3)
                 val targetTemp = 178 + offset
                 _currentTemperature.value = targetTemp
@@ -425,10 +416,7 @@ class IndustrialViewModel(
                 }
             }
 
-            // Find matching product to set nominal timer
-            val prod = products.value.find { it.englishName == currentProductEnglish }
-            val nominalDuration = prod?.nominalBatchDurationSec ?: 420
-            _timerRemainingSec.value = nominalDuration
+            // Completed active batch state
         }
     }
 
@@ -717,72 +705,64 @@ class IndustrialViewModel(
                                                     activeBatchCountCompleted.value = completed
                                                     selectedBatchNumber.value = completed + 1
 
-                                                    val prod = products.value.find { it.id == productKey || it.englishName == nameEng }
-                                                    val nominalDuration = prod?.nominalBatchDurationSec ?: 480
                                                     if (batchId.value != "B-${id}-${completed + 1}") {
-                                                        _timerRemainingSec.value = nominalDuration
-                                                        batchId.value = "B-${id}-${completed + 1}"
-                                                    }
-                                                }
-                                            }
-                                        }
+                                                         batchId.value = "B-${id}-${completed + 1}"
+                                                     }
+                                                 }
+                                             }
+                                         }
 
-                                        if (status == "PENDING" && firstPendingHindi == "--") {
-                                            firstPendingHindi = nameHin
-                                            firstPendingEnglish = nameEng
-                                        }
-                                    }
+                                         if (status == "PENDING" && firstPendingHindi == "--") {
+                                             firstPendingHindi = nameHin
+                                             firstPendingEnglish = nameEng
+                                         }
+                                     }
 
-                                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                                        _ordersQueue.value = tempOrders
-                                        nextPendingOrderNameHindi.value = firstPendingHindi
-                                        nextPendingOrderNameEnglish.value = firstPendingEnglish
-                                    }
+                                     viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                                         _ordersQueue.value = tempOrders
+                                         nextPendingOrderNameHindi.value = firstPendingHindi
+                                         nextPendingOrderNameEnglish.value = firstPendingEnglish
+                                     }
 
-                                    if (!foundActive) {
-                                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                                            activeOrderId.value = ""
-                                            activeProductNameEnglish.value = ""
-                                            activeProductNameHindi.value = ""
-                                            activeProductColorHex.value = "#1A1A1A"
-                                            activeBatchCountCompleted.value = 0
-                                            activeBatchCountTotal.value = 0
-                                            batchId.value = "--"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e("NexusPoll", "Failed loading orders: ${e.message}")
-                    }
+                                     if (!foundActive) {
+                                         viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                                             activeOrderId.value = ""
+                                             activeProductNameEnglish.value = ""
+                                             activeProductNameHindi.value = ""
+                                             activeProductColorHex.value = "#1A1A1A"
+                                             activeBatchCountCompleted.value = 0
+                                             activeBatchCountTotal.value = 0
+                                             batchId.value = "--"
+                                         }
+                                     }
+                                 }
+                             }
+                         }
+                     } catch (e: Exception) {
+                         android.util.Log.e("NexusPoll", "Failed loading orders: ${e.message}")
+                     }
 
-                    // 3. Validate token LAST — only clears pairing if server explicitly says invalid.
-                    //    Network errors are ignored to prevent false logouts on brief connectivity drops.
-                    try {
-                        val valUrl = "$serverUrl/api/auth/validate"
-                        val valRequest = okhttp3.Request.Builder()
-                            .url(valUrl)
-                            .addHeader("Authorization", "Bearer $stationToken")
-                            .build()
-                        client.newCall(valRequest).execute().use { response ->
-                            if (response.isSuccessful) {
-                                val bodyStr = response.body?.string()
-                                if (!bodyStr.isNullOrBlank()) {
-                                    val json = org.json.JSONObject(bodyStr)
-                                    if (!json.optBoolean("valid", true)) {
-                                        android.util.Log.w("NexusPoll", "Token invalidated by server: ${json.optString("reason")}")
-                                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                                            clearPairing()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        // Network error during validate — safe to ignore, orders already fetched above
-                        android.util.Log.w("NexusPoll", "Validate check skipped (network): ${e.message}")
-                    }
+                     // 3. Validate token check — logs status without unpairing station
+                     try {
+                         val valUrl = "$serverUrl/api/auth/validate"
+                         val valRequest = okhttp3.Request.Builder()
+                             .url(valUrl)
+                             .addHeader("Authorization", "Bearer $stationToken")
+                             .build()
+                         client.newCall(valRequest).execute().use { response ->
+                             if (response.isSuccessful) {
+                                 val bodyStr = response.body?.string()
+                                 if (!bodyStr.isNullOrBlank()) {
+                                     val json = org.json.JSONObject(bodyStr)
+                                     if (!json.optBoolean("valid", true)) {
+                                         android.util.Log.w("NexusPoll", "Token validation notice: ${json.optString("reason")}")
+                                     }
+                                 }
+                             }
+                         }
+                     } catch (e: Exception) {
+                         android.util.Log.w("NexusPoll", "Validate check skipped (network): ${e.message}")
+                     }
                 }
                 kotlinx.coroutines.delay(2000)
             }

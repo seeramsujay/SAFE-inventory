@@ -176,18 +176,34 @@ fun LoginScreen(
                             }
                         }
                     } else {
-                        Button(
-                            onClick = { 
-                                viewModel.clearPairing()
-                            },
-                            shape = RoundedCornerShape(0),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(52.dp)
-                                .border(2.dp, Color(0xFF1A1A1A))
-                        ) {
-                            Text("DISCONNECT / डिस्कनेक्ट करें", fontWeight = FontWeight.Bold, color = Color.White)
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Button(
+                                onClick = { 
+                                    viewModel.navigationTo("worker_timer")
+                                },
+                                shape = RoundedCornerShape(0),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00875A)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(52.dp)
+                                    .border(2.dp, Color(0xFF1A1A1A))
+                            ) {
+                                Text("कंसोल खोलें / ENTER WORKER CONSOLE", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                            }
+
+                            Button(
+                                onClick = { 
+                                    viewModel.clearPairing()
+                                },
+                                shape = RoundedCornerShape(0),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                                    .border(2.dp, Color(0xFF1A1A1A))
+                            ) {
+                                Text("DISCONNECT / डिस्कनेक्ट करें", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 11.sp)
+                            }
                         }
                     }
                 }

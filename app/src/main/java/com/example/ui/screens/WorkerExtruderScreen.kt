@@ -162,7 +162,7 @@ fun WorkerExtruderScreen(
                     }
                 }
 
-                // Toggle back to countdown clock button
+                // Toggle back to main recipe view button
                 Button(
                     onClick = onNavigateToTimer,
                     shape = RoundedCornerShape(0),
@@ -176,7 +176,7 @@ fun WorkerExtruderScreen(
                         .border(2.dp, Color(0xFF1A1A1A))
                 ) {
                     Text(
-                        text = "← उलटी गिनती देखें / VIEW COUNTDOWN",
+                        text = "← मुख्य रेसिपी देखें / VIEW RECIPE",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Black
                     )
