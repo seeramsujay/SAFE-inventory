@@ -68,8 +68,8 @@ class IndustrialRepository(
         val currentProducts = allProducts.firstOrNull() ?: emptyList()
         if (currentProducts.isEmpty()) {
             // Add initial products
-            productDao.insertProduct(ProductEntity("PRD-001", "क्रीम स्पेशल", "Cream Special", 1200, "#00875A", true, "Cream_Special_Ops_v2.pdf", 480))
-            productDao.insertProduct(ProductEntity("PRD-002", "प्रीमियम प्लस", "Premium Plus", 850, "#E65100", false, "Premium_Plus_Safety.pdf", 540))
+            productDao.insertProduct(ProductEntity("PRD-001", "क्रीम स्पेशल", "Cream Special", 1200, "#00F0FF", true, "Cream_Special_Ops_v2.pdf", 480))
+            productDao.insertProduct(ProductEntity("PRD-002", "प्रीमियम प्लस", "Premium Plus", 850, "#FF6B00", true, "Premium_Plus_Safety.pdf", 540))
             productDao.insertProduct(ProductEntity("PRD-003", "मानक मिश्रण", "Standard Blend", 2500, "#10B981", true, null, 360))
         }
 

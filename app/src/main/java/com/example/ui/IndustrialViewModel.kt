@@ -119,6 +119,13 @@ class IndustrialViewModel(
 
     private var breakJob: Job? = null
 
+    // 2. Active Screen State/Layout state
+    // Screens: "login", "worker_timer", "worker_extruder", "emergency", "admin"
+    private val _currentScreen = MutableStateFlow(
+        if (com.example.data.PreferencesManager.isPaired(application)) "worker_timer" else "login"
+    )
+    val currentScreen: StateFlow<String> = _currentScreen.asStateFlow()
+
     // Initialize database pre-population
     init {
         viewModelScope.launch {
@@ -168,13 +175,6 @@ class IndustrialViewModel(
 
     val pendingLogs: StateFlow<List<OutboxEntity>> = repository.allPendingLogs
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-
-    // 2. Active Screen State/Layout state
-    // Screens: "login", "worker_timer", "worker_extruder", "emergency", "admin"
-    private val _currentScreen = MutableStateFlow(
-        if (com.example.data.PreferencesManager.isPaired(application)) "worker_timer" else "login"
-    )
-    val currentScreen: StateFlow<String> = _currentScreen.asStateFlow()
 
     fun savePairing(stationId: String, token: String, url: String, stationType: String = "") {
         var cleanedUrl = url.trim()
@@ -695,21 +695,23 @@ class IndustrialViewModel(
 
                                         if (status == "ACTIVE" && !foundActive) {
                                             foundActive = true
-                                            if (activeOrderId.value.isBlank() || !tempOrders.any { it.id == activeOrderId.value }) {
-                                                viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                                                    activeOrderId.value = id
-                                                    activeProductNameEnglish.value = nameEng
-                                                    activeProductNameHindi.value = nameHin
-                                                    activeProductColorHex.value = color
-                                                    activeBatchCountTotal.value = scheduled
-                                                    activeBatchCountCompleted.value = completed
+                                            viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                                                val isNewOrder = activeOrderId.value != id
+                                                activeOrderId.value = id
+                                                activeProductNameEnglish.value = nameEng
+                                                activeProductNameHindi.value = nameHin
+                                                activeProductColorHex.value = color
+                                                activeBatchCountTotal.value = scheduled
+                                                activeBatchCountCompleted.value = completed
+                                                if (isNewOrder || selectedBatchNumber.value <= completed || selectedBatchNumber.value > scheduled) {
                                                     selectedBatchNumber.value = completed + 1
+                                                }
 
-                                                    if (batchId.value != "B-${id}-${completed + 1}") {
-                                                         batchId.value = "B-${id}-${completed + 1}"
-                                                     }
-                                                 }
-                                             }
+                                                val targetBatchId = "B-${id}-${selectedBatchNumber.value}"
+                                                if (batchId.value != targetBatchId) {
+                                                     batchId.value = targetBatchId
+                                                }
+                                            }
                                          }
 
                                          if (status == "PENDING" && firstPendingHindi == "--") {
@@ -775,7 +777,8 @@ class IndustrialViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        timerJob?.cancel()
+        breakJob?.cancel()
+        monitorJob?.cancel()
         pollJob?.cancel()
     }
 

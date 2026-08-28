@@ -36,6 +36,11 @@ fun parseHexColor(hexString: String?, defaultColor: Color = Color(0xFF00875A)): 
     }
 }
 
+fun isDarkColor(color: Color): Boolean {
+    val luminance = 0.299 * color.red + 0.587 * color.green + 0.114 * color.blue
+    return luminance < 0.55
+}
+
 data class IngredientDetail(
     val id: String,
     val nameEn: String,
@@ -147,14 +152,19 @@ fun WorkerTimerScreen(
 
     val hasActiveOrder = activeProductNameEnglish.isNotBlank()
 
-    val activeProduct = remember(products, activeProductNameEnglish) {
-        products.find { it.englishName.equals(activeProductNameEnglish, ignoreCase = true) }
+    val activeProduct = remember(products, activeProductNameEnglish, activeOrderId) {
+        products.find { 
+            it.englishName.equals(activeProductNameEnglish, ignoreCase = true) || 
+            (activeOrderId.isNotBlank() && it.id.equals(activeOrderId, ignoreCase = true))
+        }
     }
 
-    // Dynamic recipe color from the recipe/product definition
+    // Dynamic mixture color as specified in the dashboard (web)
     val recipeColor = remember(activeProductColorHex, activeProduct) {
-        val hex = activeProduct?.colorHex ?: activeProductColorHex
-        parseHexColor(hex, if (isGrinder) Color(0xFFD97706) else Color(0xFF00875A))
+        val hex = activeProduct?.colorHex?.takeIf { it.isNotBlank() && it != "#1A1A1A" }
+            ?: activeProductColorHex.takeIf { it.isNotBlank() && it != "#1A1A1A" }
+            ?: "#00875A"
+        parseHexColor(hex, Color(0xFF00875A))
     }
 
     // Parse complete formula ingredients of the mixture
@@ -555,14 +565,21 @@ fun WorkerTimerScreen(
                         }
                     }
                 } else {
-                    // ── ACTIVE BATCH & RECIPE INGREDIENTS VIEW ───────────────────
+                    val isDarkRecipe = isDarkColor(recipeColor)
+                    val headerTextColor = if (isDarkRecipe) Color.White else Color(0xFF0F172A)
+                    val headerSubtextColor = if (isDarkRecipe) Color.White.copy(alpha = 0.9f) else Color(0xFF1E293B).copy(alpha = 0.9f)
+                    val headerBadgeBg = if (isDarkRecipe) Color.Black.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.6f)
+                    val headerBadgeText = if (isDarkRecipe) Color.White else Color(0xFF0F172A)
+                    val headerDividerColor = if (isDarkRecipe) Color.White.copy(alpha = 0.35f) else Color(0xFF0F172A).copy(alpha = 0.2f)
+
+                    // ── ACTIVE BATCH & RECIPE INGREDIENTS VIEW (SHOWS RECIPE ONLY FOR BOTH STAGES) ───
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        // 1. ACTIVE HEADER CARD (With vibrant recipe color)
+                        // 1. ACTIVE HEADER CARD (Using dynamic mixture color from dashboard)
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -577,12 +594,12 @@ fun WorkerTimerScreen(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .background(Color.White.copy(alpha = 0.25f))
+                                        .background(headerBadgeBg)
                                         .padding(horizontal = 8.dp, vertical = 3.dp)
                                 ) {
                                     Text(
                                         text = if (isGrinder) "STAGE 1: GRINDER (पिसाई)" else "STAGE 2: MIXER (मिश्रण)",
-                                        color = Color.White,
+                                        color = headerBadgeText,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Black,
                                         fontFamily = FontFamily.Monospace
@@ -609,21 +626,21 @@ fun WorkerTimerScreen(
 
                             Text(
                                 text = activeProductNameHindi,
-                                color = Color.White,
-                                fontSize = 32.sp,
+                                color = headerTextColor,
+                                fontSize = 30.sp,
                                 fontWeight = FontWeight.Black,
                                 fontFamily = FontFamily.SansSerif
                             )
                             Text(
                                 text = "RECIPE FORMULA: ${activeProductNameEnglish.uppercase()}",
-                                color = Color.White.copy(alpha = 0.9f),
+                                color = headerSubtextColor,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             )
 
                             Spacer(modifier = Modifier.height(10.dp))
-                            Divider(color = Color.White.copy(alpha = 0.35f), thickness = 1.dp)
+                            Divider(color = headerDividerColor, thickness = 1.dp)
                             Spacer(modifier = Modifier.height(8.dp))
 
                             // Key Batch Info Badges
@@ -633,12 +650,12 @@ fun WorkerTimerScreen(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .background(Color.Black.copy(alpha = 0.35f))
+                                        .background(headerBadgeBg)
                                         .padding(horizontal = 10.dp, vertical = 6.dp)
                                 ) {
                                     Text(
                                         text = "कुल मिश्रण वजन: ${totalBatchWeight.toInt()} kg",
-                                        color = Color.White,
+                                        color = headerBadgeText,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Monospace
@@ -647,12 +664,12 @@ fun WorkerTimerScreen(
 
                                 Box(
                                     modifier = Modifier
-                                        .background(Color.Black.copy(alpha = 0.35f))
+                                        .background(headerBadgeBg)
                                         .padding(horizontal = 10.dp, vertical = 6.dp)
                                 ) {
                                     Text(
                                         text = "${formulaItems.size} INGREDIENTS / सामग्री",
-                                        color = Color.White,
+                                        color = headerBadgeText,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Monospace
@@ -661,70 +678,36 @@ fun WorkerTimerScreen(
                             }
                         }
 
-                        // 2. COMPLETE MIXTURE INGREDIENT LIST (THE RECIPE)
+                        // 2. COMPLETE MIXTURE RECIPE INGREDIENT BREAKDOWN
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            if (isGrinder) {
-                                val maizeItem = formulaItems.find { it.isGrinderRaw || it.id.contains("006") || it.id.contains("maize", ignoreCase = true) }
-                                val maizeKg = maizeItem?.weightKg ?: 120.0
-                                
-                                // Highlighted Grinder Material Box
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(Color(0xFFFFFBEB))
-                                        .border(2.dp, Color(0xFFD97706))
-                                        .padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column {
-                                        Text(
-                                            text = "साबुत मक्का (Raw Maize / ING-006)",
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.Black,
-                                            color = Color.Black
-                                        )
-                                        Text(
-                                            text = "स्टेज 1 पिसाई सामग्री — हॉपर में लोड करें",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF78350F),
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                    }
-                                    Box(
-                                        modifier = Modifier
-                                            .background(Color(0xFFD97706))
-                                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                                    ) {
-                                        Text(
-                                            text = "${maizeKg.toInt()} kg",
-                                            fontSize = 20.sp,
-                                            fontWeight = FontWeight.Black,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = Color.White
-                                        )
-                                    }
-                                }
-                            }
-
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = "मिश्रण रेसिपी सामग्री सूची (ALL INGREDIENTS OF MIXTURE):",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Black,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = recipeColor
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .background(recipeColor)
+                                            .border(1.dp, Color(0xFF1A1A1A))
+                                    )
+                                    Text(
+                                        text = "मिश्रण रेसिपी सामग्री सूची (ALL INGREDIENTS OF MIXTURE):",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Black,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = Color(0xFF1A1A1A)
+                                    )
+                                }
                                 Text(
                                     text = "कुल: ${totalBatchWeight.toInt()} kg",
                                     fontSize = 12.sp,
@@ -745,13 +728,14 @@ fun WorkerTimerScreen(
                             ) {
                                 items(formulaItems) { item ->
                                     val isGrindStage = item.isGrinderRaw || item.isPipelineGround
+                                    val pct = if (totalBatchWeight > 0) ((item.weightKg / totalBatchWeight) * 100).toInt() else 0
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .background(if (isGrindStage) Color(0xFFFFFBEB) else Color(0xFFF8FAFC))
+                                            .background(Color(0xFFF8FAFC))
                                             .border(
                                                 width = 1.5.dp,
-                                                color = if (isGrindStage) Color(0xFFD97706) else Color(0xFFCBD5E1)
+                                                color = Color(0xFFE2E8F0)
                                             )
                                             .padding(horizontal = 12.dp, vertical = 10.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -771,7 +755,7 @@ fun WorkerTimerScreen(
                                                 if (isGrindStage) {
                                                     Box(
                                                         modifier = Modifier
-                                                            .background(Color(0xFFD97706))
+                                                            .background(Color(0xFF1E293B))
                                                             .padding(horizontal = 6.dp, vertical = 2.dp)
                                                     ) {
                                                         Text(
@@ -785,17 +769,18 @@ fun WorkerTimerScreen(
                                                 }
                                             }
                                             Text(
-                                                text = "${item.nameEn} • ${item.dosingType}",
+                                                text = "${item.nameEn} • ${item.dosingType} • $pct%",
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = Color.Gray,
+                                                color = Color(0xFF64748B),
                                                 fontFamily = FontFamily.Monospace
                                             )
                                         }
 
                                         Box(
                                             modifier = Modifier
-                                                .background(if (isGrindStage) Color(0xFFD97706) else recipeColor)
+                                                .background(recipeColor)
+                                                .border(1.dp, Color(0xFF1A1A1A).copy(alpha = 0.3f))
                                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                                         ) {
                                             Text(
@@ -803,7 +788,7 @@ fun WorkerTimerScreen(
                                                 fontSize = 16.sp,
                                                 fontWeight = FontWeight.Black,
                                                 fontFamily = FontFamily.Monospace,
-                                                color = Color.White
+                                                color = headerTextColor
                                             )
                                         }
                                     }
@@ -814,36 +799,7 @@ fun WorkerTimerScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Grinder Bulk Action: Pulverize all remaining batches in one shot if > 1 remaining
-                    val remainingBatches = maxOf(1, totalBatches - completedBatches)
-                    if (isGrinder && remainingBatches > 1) {
-                        val totalRemainingMaizeKg = remainingBatches * 120
-                        Button(
-                            onClick = {
-                                viewModel.completeBulkGrind(activeOrderId, remainingBatches)
-                                showSuccessFlash = true
-                            },
-                            shape = RoundedCornerShape(0),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFD97706),
-                                contentColor = Color.White
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(46.dp)
-                                .border(2.dp, Color(0xFF1A1A1A))
-                        ) {
-                            Text(
-                                text = "⚡ पूरे ऑर्डर के सभी बैच पीसें (BULK GRIND ALL $remainingBatches BATCHES: ${totalRemainingMaizeKg} KG)",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Black,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-
-                    // 3. EXECUTION ACTION SLIDER AT BOTTOM
+                    // 3. EXECUTION ACTION SLIDER AT BOTTOM (Consistent for both stages)
                     SwipeToConfirmSlider(
                         text = if (isGrinder) "मक्का पीसकर पाइपलाइन में भेजें (SEND TO PIPELINE)" else "फीडबैक दर्ज कर बैच पूरा करें (SWIPE FOR FEEDBACK)",
                         successText = if (isGrinder) "पिसाई पूरी - पाइपलाइन में भेजा गया" else "फीडबैक आवश्यक / FEEDBACK REQUIRED",

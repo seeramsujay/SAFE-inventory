@@ -295,7 +295,7 @@ async function seedProductsOnly() {
       name: "क्रीम स्पेशल",
       englishName: "Cream Special",
       targetUph: 1200,
-      colorHex: "#00875A",
+      colorHex: "#00F0FF",
       isActive: 1,
       manualFileName: "Cream_Special_Ops_v2.pdf",
       nominalBatchDurationSec: 480,
@@ -312,7 +312,7 @@ async function seedProductsOnly() {
       name: "प्रीमियम प्लस",
       englishName: "Premium Plus",
       targetUph: 1500,
-      colorHex: "#E65100",
+      colorHex: "#FF6B00",
       isActive: 1,
       manualFileName: "Premium_Plus_Standard_v4.pdf",
       nominalBatchDurationSec: 600,
@@ -322,6 +322,21 @@ async function seedProductsOnly() {
         { ingredientId: "ING-002", percentage: 150, stage: "mixer", requiresGrinding: false },
         { ingredientId: "ING-003", percentage: 70,  stage: "mixer", requiresGrinding: false },
         { ingredientId: "ING-005", percentage: 50,  stage: "mixer", requiresGrinding: false }
+      ])
+    },
+    {
+      id: "PRD-003",
+      name: "मानक मिश्रण",
+      englishName: "Standard Blend",
+      targetUph: 2500,
+      colorHex: "#10B981",
+      isActive: 1,
+      manualFileName: null,
+      nominalBatchDurationSec: 360,
+      mixtureRatios: JSON.stringify([
+        { ingredientId: "ING-001", percentage: 350, stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-002", percentage: 150, stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-003", percentage: 100, stage: "mixer", requiresGrinding: false }
       ])
     }
   ];
@@ -408,7 +423,7 @@ export async function seedData() {
       name: "क्रीम स्पेशल",
       englishName: "Cream Special",
       targetUph: 1200,
-      colorHex: "#00875A",
+      colorHex: "#00F0FF",
       isActive: 1,
       manualFileName: "Cream_Special_Ops_v2.pdf",
       nominalBatchDurationSec: 480,
@@ -425,7 +440,7 @@ export async function seedData() {
       name: "प्रीमियम प्लस",
       englishName: "Premium Plus",
       targetUph: 1500,
-      colorHex: "#E65100",
+      colorHex: "#FF6B00",
       isActive: 1,
       manualFileName: "Premium_Plus_Standard_v4.pdf",
       nominalBatchDurationSec: 600,
@@ -436,12 +451,27 @@ export async function seedData() {
         { ingredientId: "ING-003", percentage: 70, stage: "mixer", requiresGrinding: false },
         { ingredientId: "ING-005", percentage: 50, stage: "mixer", requiresGrinding: false }
       ])
+    },
+    {
+      id: "PRD-003",
+      name: "मानक मिश्रण",
+      englishName: "Standard Blend",
+      targetUph: 2500,
+      colorHex: "#10B981",
+      isActive: 1,
+      manualFileName: null,
+      nominalBatchDurationSec: 360,
+      mixtureRatios: JSON.stringify([
+        { ingredientId: "ING-001", percentage: 350, stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-002", percentage: 150, stage: "mixer", requiresGrinding: false },
+        { ingredientId: "ING-003", percentage: 100, stage: "mixer", requiresGrinding: false }
+      ])
     }
   ];
 
   for (const p of initialProducts) {
     await run(
-      `INSERT INTO products (id, name, englishName, targetUph, colorHex, isActive, manualFileName, nominalBatchDurationSec, mixtureRatios)
+      `INSERT OR REPLACE INTO products (id, name, englishName, targetUph, colorHex, isActive, manualFileName, nominalBatchDurationSec, mixtureRatios)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [p.id, p.name, p.englishName, p.targetUph, p.colorHex, p.isActive, p.manualFileName, p.nominalBatchDurationSec, p.mixtureRatios]
     );
