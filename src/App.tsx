@@ -366,6 +366,7 @@ export default function App() {
   const [showAddProductModal, setShowAddProductModal] = useState(false);
 
   // New material form states
+  const [editingMaterial, setEditingMaterial] = useState<InventoryItem | null>(null);
   const [showAddMaterialModal, setShowAddMaterialModal] = useState(false);
   const [newMaterialId, setNewMaterialId] = useState('');
   const [newMaterialName, setNewMaterialName] = useState('');
@@ -405,6 +406,35 @@ export default function App() {
     }
   };
 
+  const handleStartEditMaterial = (item: InventoryItem) => {
+    setEditingMaterial(item);
+    setNewMaterialId(item.id.replace(/^ING-/i, ''));
+    setNewMaterialName(item.name);
+    setNewMaterialHindiName(item.hindiName || '');
+    setNewMaterialStock(item.stock);
+    setNewMaterialUnit(item.unit || 'kg');
+    setNewMaterialMinStock(item.minStock || 100);
+    setIsMaterialHindiNameManuallyEdited(true);
+    setShowAddMaterialModal(true);
+  };
+
+  const handleDeleteMaterial = async (itemId: string) => {
+    if (window.confirm(`CONFIRM: Delete raw material ${itemId}?`)) {
+      try {
+        const res = await customFetch(`/api/inventory/${itemId}`, {
+          method: 'DELETE'
+        });
+        if (res.ok) {
+          fetchInventory();
+        } else {
+          alert(`Failed to delete raw material ${itemId}`);
+        }
+      } catch (err) {
+        console.error("Failed to delete raw material:", err);
+      }
+    }
+  };
+
   const handleSaveMaterial = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMaterialId || !newMaterialName) {
@@ -431,6 +461,7 @@ export default function App() {
       if (res.ok) {
         fetchInventory();
         setShowAddMaterialModal(false);
+        setEditingMaterial(null);
         setNewMaterialId('');
         setNewMaterialName('');
         setNewMaterialHindiName('');
@@ -657,7 +688,7 @@ export default function App() {
             stock: d.stock || 0.0,
             unit: d.unit || 'kg',
             minStock: d.minStock || 0.0
-          }));
+          })).sort((a: any, b: any) => b.stock - a.stock);
           setInventory(mapped);
         }
       }
@@ -1642,24 +1673,24 @@ export default function App() {
                           <span className="text-xs font-mono text-[#00F0FF] font-bold">Total Batch Weight: {mixerBatchWeight} kg</span>
                         </div>
 
-                        <div className="flex flex-col gap-2 font-mono text-xs">
+                        <div className="flex flex-col md:flex-row md:overflow-x-auto gap-2.5 font-mono text-xs max-h-[320px] md:max-h-none overflow-y-auto pb-1 scrollbar-thin scrollbar-thumb-[#00F0FF]/30">
                           {mixerIngredients.map((ing, idx) => {
                             const isMaize = ing.ingredientId === 'ING-006' || (ing.name && ing.name.toLowerCase().includes('maize'));
                             return (
                               <div 
                                 key={ing.ingredientId || idx}
-                                className={`p-2.5 rounded-lg border flex items-center justify-between transition ${
+                                className={`p-3 rounded-lg border flex flex-row md:flex-col justify-between md:min-w-[200px] shrink-0 transition ${
                                   isMaize 
                                     ? 'bg-amber-950/20 border-amber-500/40 text-amber-300' 
                                     : 'bg-black/40 border-gray-800 text-gray-200'
                                 }`}
                               >
-                                <div className="flex items-center gap-2.5">
-                                  <span className="w-5 h-5 rounded-full bg-gray-800 flex items-center justify-center text-[10px] font-bold text-gray-300">
+                                <div className="flex items-start gap-2.5">
+                                  <span className="w-5 h-5 rounded-full bg-gray-800 flex items-center justify-center text-[10px] font-bold text-gray-300 shrink-0 mt-0.5">
                                     {idx + 1}
                                   </span>
                                   <div>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
                                       <strong className="text-white text-sm">
                                         {isMaize ? 'Ground Maize Powder (पिसा हुआ मक्का)' : (ing.hindiName || ing.name || ing.ingredientId)}
                                       </strong>
@@ -1669,10 +1700,10 @@ export default function App() {
                                         </span>
                                       )}
                                     </div>
-                                    <span className="text-[10px] text-gray-400 block">{ing.name}</span>
+                                    <span className="text-[10px] text-gray-400 block mt-0.5">{ing.name}</span>
                                   </div>
                                 </div>
-                                <div className="text-right font-mono">
+                                <div className="text-right md:text-left md:mt-3 md:pt-2 md:border-t md:border-gray-800/60 font-mono flex md:justify-between items-end md:items-center">
                                   <span className="text-sm font-black text-white">{ing.percentage} kg</span>
                                   <span className="text-[9px] text-gray-500 block">
                                     {isMaize ? 'Pipeline Transfer' : 'Direct Addition'}
@@ -2501,9 +2532,9 @@ export default function App() {
             {/* List products */}
             <div className="p-6">
               
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="flex gap-6 overflow-x-auto pb-4 pt-1 snap-x scrollbar-thin scrollbar-thumb-industrial-accent/30 scrollbar-track-black/40">
                 {products.length === 0 ? (
-                  <div className="col-span-full py-12 text-center text-gray-500 border border-dashed border-gray-800 rounded">
+                  <div className="w-full py-12 text-center text-gray-500 border border-dashed border-gray-800 rounded">
                     <FolderPlaceholder />
                     <p className="mt-2 text-sm text-gray-500 font-mono">NO ACTIVE FORMULAS IN DIRECTORY REGISTER</p>
                   </div>
@@ -2511,7 +2542,7 @@ export default function App() {
                   products.map(p => (
                     <div 
                       key={p.id} 
-                      className="bg-[#12141C] border border-industrial-border rounded overflow-hidden flex flex-col relative"
+                      className="bg-[#12141C] border border-industrial-border rounded overflow-hidden flex flex-col relative min-w-[320px] max-w-[360px] shrink-0 snap-start shadow-md hover:border-industrial-accent/50 transition-all"
                     >
                       {/* Product Accent visual banner */}
                       <div className="h-2" style={{ backgroundColor: p.colorHex }}></div>
@@ -2547,9 +2578,9 @@ export default function App() {
                           <div className="flex justify-between items-center">
                             <span className="text-gray-500">DOCUMENT MANUAL:</span>
                             {p.manualFileName ? (
-                              <span className="text-industrial-accent flex items-center gap-1 text-[11px]" title={p.manualFileName}>
-                                <BookOpen className="w-3.5 h-3.5" />
-                                {p.manualFileName}
+                              <span className="text-industrial-accent flex items-center gap-1 text-[11px] truncate max-w-[170px]" title={p.manualFileName}>
+                                <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                                <span className="truncate">{p.manualFileName}</span>
                               </span>
                             ) : (
                               <span className="text-gray-600 text-[11px]">Unregistered</span>
@@ -2776,14 +2807,37 @@ export default function App() {
                   </button>
                 </div>
                 <div className="flex flex-col gap-4">
-                  {inventory.filter(item => item.type === 'raw_material').map(item => {
+                  {inventory
+                    .filter(item => item.type === 'raw_material')
+                    .sort((a, b) => b.stock - a.stock)
+                    .map(item => {
                     const pct = Math.min(100, (item.stock / 20000) * 100);
                     const isLow = item.stock < item.minStock;
                     return (
-                      <div key={item.id} className="bg-[#0B0D10] border border-industrial-border p-4 rounded-lg flex flex-col gap-2">
+                      <div key={item.id} className="bg-[#0B0D10] border border-industrial-border hover:border-industrial-accent/40 p-4 rounded-lg flex flex-col gap-2 transition-all">
                         <div className="flex justify-between items-start">
                           <div>
-                            <div className="font-bold text-white text-sm">{item.name}</div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-white text-sm">{item.name}</span>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditMaterial(item)}
+                                  title="Edit Material Details"
+                                  className="text-gray-400 hover:text-industrial-accent p-1 rounded hover:bg-gray-800 transition"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMaterial(item.id)}
+                                  title="Delete Material"
+                                  className="text-gray-500 hover:text-industrial-danger p-1 rounded hover:bg-red-950/30 transition"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
                             <div className="text-xs text-gray-500">{item.hindiName} ({item.id})</div>
                           </div>
                           <div className="text-right">
@@ -2869,7 +2923,10 @@ export default function App() {
                   📦 Output Finished Goods (Produced)
                 </h3>
                 <div className="flex flex-col gap-4">
-                  {inventory.filter(item => item.type === 'finished_good').map(item => {
+                  {inventory
+                    .filter(item => item.type === 'finished_good')
+                    .sort((a, b) => b.stock - a.stock)
+                    .map(item => {
                     return (
                       <div key={item.id} className="bg-[#0B0D10] border border-industrial-border p-4 rounded-lg flex flex-col gap-2">
                         <div className="flex justify-between items-start">
@@ -3548,17 +3605,20 @@ export default function App() {
         </div>
       )}
 
-      {/* DIALOG ADD RAW MATERIAL */}
+      {/* DIALOG ADD/EDIT RAW MATERIAL */}
       {showAddMaterialModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 select-none">
           <div className="bg-industrial-card border-2 border-industrial-accent rounded-lg max-w-md w-full overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
             <div className="bg-[#0B0D10] border-b border-industrial-border p-4 flex justify-between items-center bg-gray-950">
               <h3 className="text-sm font-bold font-mono tracking-widest text-[#00F0FF] uppercase">
-                REGISTER NEW RAW MATERIAL
+                {editingMaterial ? 'EDIT RAW MATERIAL DETAILS' : 'REGISTER NEW RAW MATERIAL'}
               </h3>
               
               <button 
-                onClick={() => setShowAddMaterialModal(false)}
+                onClick={() => {
+                  setShowAddMaterialModal(false);
+                  setEditingMaterial(null);
+                }}
                 className="text-gray-400 hover:text-white font-mono text-sm uppercase px-1.5 py-0.5 border border-transparent hover:border-gray-700 transition"
               >
                 Close
@@ -3573,8 +3633,9 @@ export default function App() {
                   type="text"
                   placeholder="e.g. 006 (ING- prefix auto-appended)"
                   value={newMaterialId}
+                  disabled={!!editingMaterial}
                   onChange={(e) => setNewMaterialId(e.target.value)}
-                  className="bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 focus:border-industrial-accent outline-none font-mono"
+                  className={`bg-[#0B0D10] text-[#E2E8F0] border border-industrial-border rounded p-2 focus:border-industrial-accent outline-none font-mono ${editingMaterial ? 'opacity-50 cursor-not-allowed' : ''}`}
                 />
               </div>
 
@@ -3605,7 +3666,7 @@ export default function App() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-gray-400 uppercase tracking-wide">INITIAL STOCK QUANTITY:</label>
+                <label className="text-gray-400 uppercase tracking-wide">STOCK QUANTITY ({newMaterialUnit}):</label>
                 <input
                   type="number"
                   value={newMaterialStock}
@@ -3641,7 +3702,7 @@ export default function App() {
                 type="submit"
                 className="bg-industrial-accent hover:bg-cyan-500 font-bold font-mono text-black py-2.5 rounded transition uppercase tracking-widest text-xs mt-3 shadow-md shadow-industrial-accent/25"
               >
-                Register Raw Material
+                {editingMaterial ? 'UPDATE RAW MATERIAL' : 'REGISTER RAW MATERIAL'}
               </button>
 
             </form>

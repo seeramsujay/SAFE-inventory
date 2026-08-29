@@ -25,15 +25,16 @@ data class OrderInfo(
     val timestamp: Long = 0L
 )
 
-data class UpcomingBatchItem(
-    val batchId: String,
+data class UpcomingOrderItem(
     val orderId: String,
-    val batchNumber: Int,
+    val currentBatchNumber: Int,
+    val completedBatches: Int,
     val totalBatchesInOrder: Int,
     val productNameHindi: String,
     val productNameEnglish: String,
     val colorHex: String,
-    val isSelected: Boolean = false
+    val isSelected: Boolean = false,
+    val status: String = "ACTIVE"
 )
 
 class IndustrialViewModel(
@@ -68,46 +69,53 @@ class IndustrialViewModel(
     // Selected batch number for active working formula
     val selectedBatchNumber = MutableStateFlow(1)
 
-    // Reactive stream of upcoming batches across scheduled orders
-    val upcomingBatches: StateFlow<List<UpcomingBatchItem>> = kotlinx.coroutines.flow.combine(
+    // Reactive stream of product order tiles in the queue (1 product per single tile)
+    val upcomingOrders: StateFlow<List<UpcomingOrderItem>> = kotlinx.coroutines.flow.combine(
         _ordersQueue,
         activeOrderId,
         selectedBatchNumber
     ) { orders, actId, selNum ->
-        val list = mutableListOf<UpcomingBatchItem>()
+        val list = mutableListOf<UpcomingOrderItem>()
         for (ord in orders) {
             if (ord.status == "ACTIVE" || ord.status == "PENDING" || ord.status.equals("In Progress", ignoreCase = true)) {
-                val remaining = maxOf(0, ord.totalBatchesScheduled - ord.completedBatches)
-                for (i in 1..remaining) {
-                    val bNum = ord.completedBatches + i
-                    val isSel = (ord.id == actId && bNum == selNum)
-                    list.add(
-                        UpcomingBatchItem(
-                            batchId = "B-${ord.id}-$bNum",
-                            orderId = ord.id,
-                            batchNumber = bNum,
-                            totalBatchesInOrder = ord.totalBatchesScheduled,
-                            productNameHindi = ord.productNameHindi,
-                            productNameEnglish = ord.productNameEnglish,
-                            colorHex = ord.colorHex,
-                            isSelected = isSel
-                        )
+                val isSel = (ord.id == actId)
+                val currBatch = if (isSel) selNum else minOf(ord.totalBatchesScheduled, ord.completedBatches + 1)
+                list.add(
+                    UpcomingOrderItem(
+                        orderId = ord.id,
+                        currentBatchNumber = currBatch,
+                        completedBatches = ord.completedBatches,
+                        totalBatchesInOrder = ord.totalBatchesScheduled,
+                        productNameHindi = ord.productNameHindi,
+                        productNameEnglish = ord.productNameEnglish,
+                        colorHex = ord.colorHex,
+                        isSelected = isSel,
+                        status = ord.status
                     )
-                }
+                )
             }
         }
         list
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    fun selectBatch(item: UpcomingBatchItem) {
+    // Backward compatibility alias if needed
+    val upcomingBatches = upcomingOrders
+
+    fun selectOrder(item: UpcomingOrderItem) {
         activeOrderId.value = item.orderId
-        selectedBatchNumber.value = item.batchNumber
+        val nextBatch = minOf(item.totalBatchesInOrder, item.completedBatches + 1)
+        selectedBatchNumber.value = nextBatch
         activeProductNameEnglish.value = item.productNameEnglish
         activeProductNameHindi.value = item.productNameHindi
         activeProductColorHex.value = item.colorHex
         activeBatchCountTotal.value = item.totalBatchesInOrder
-        activeBatchCountCompleted.value = item.batchNumber - 1
-        batchId.value = item.batchId
+        activeBatchCountCompleted.value = item.completedBatches
+        val isGrind = stationType.value == "grinder"
+        batchId.value = "B-${item.orderId}-$nextBatch${if (isGrind) "-GRIND" else "-MIX"}"
+    }
+
+    fun selectBatch(item: UpcomingOrderItem) {
+        selectOrder(item)
     }
 
     // Break/Lunch status states
@@ -304,12 +312,21 @@ class IndustrialViewModel(
     fun logout() {
         viewModelScope.launch {
             repository.clearActiveShift()
-            // Reset state
-            workerIdInput.value = ""
-            pinInput.value = ""
+            // Reset checklist state for next shift worker, but keep paired station ID and token connected
             isHelmetChecked.value = false
             isWorkplaceClean.value = false
             isMachineNormal.value = false
+            
+            // Re-populate paired station ID & token if device is paired (Set-and-forget pairing)
+            val savedStation = com.example.data.PreferencesManager.getStationId(getApplication())
+            val savedToken = com.example.data.PreferencesManager.getStationToken(getApplication())
+            if (savedStation.isNotBlank()) {
+                workerIdInput.value = savedStation
+                pinInput.value = savedToken
+            } else {
+                workerIdInput.value = ""
+                pinInput.value = ""
+            }
             _currentScreen.value = "login"
         }
     }
@@ -361,7 +378,41 @@ class IndustrialViewModel(
             val nextBatchId = "B-$currentOrderId-$currentBatchNum${if (isGrind) "-GRIND" else "-MIX"}"
 
             val completed = activeBatchCountCompleted.value + 1
+            val total = activeBatchCountTotal.value
             activeBatchCountCompleted.value = completed
+
+            if (completed < total) {
+                selectedBatchNumber.value = completed + 1
+                val isNextGrind = stationType.value == "grinder"
+                batchId.value = "B-$currentOrderId-${completed + 1}${if (isNextGrind) "-GRIND" else "-MIX"}"
+            }
+
+            // Optimistically update orders queue so UI reflects the progress instantly
+            val updatedQueue = _ordersQueue.value.map { ord ->
+                if (ord.id == currentOrderId) {
+                    val newCompleted = ord.completedBatches + 1
+                    val newStatus = if (newCompleted >= ord.totalBatchesScheduled) "COMPLETED" else "ACTIVE"
+                    ord.copy(completedBatches = newCompleted, status = newStatus)
+                } else ord
+            }
+            _ordersQueue.value = updatedQueue
+
+            // If this order completed all batches, automatically activate the next pending order
+            if (completed >= total && total > 0) {
+                val nextOrder = updatedQueue.firstOrNull { it.status == "PENDING" && it.id != currentOrderId }
+                if (nextOrder != null) {
+                    activeOrderId.value = nextOrder.id
+                    activeProductNameEnglish.value = nextOrder.productNameEnglish
+                    activeProductNameHindi.value = nextOrder.productNameHindi
+                    activeProductColorHex.value = nextOrder.colorHex
+                    activeBatchCountTotal.value = nextOrder.totalBatchesScheduled
+                    activeBatchCountCompleted.value = nextOrder.completedBatches
+                    val nextBatch = minOf(nextOrder.totalBatchesScheduled, nextOrder.completedBatches + 1)
+                    selectedBatchNumber.value = nextBatch
+                    val isNextGrind = stationType.value == "grinder"
+                    batchId.value = "B-${nextOrder.id}-$nextBatch${if (isNextGrind) "-GRIND" else "-MIX"}"
+                }
+            }
 
             val entity = BatchLogEntity(
                 batchId = nextBatchId,

@@ -796,6 +796,16 @@ app.post('/api/inventory', async (req, res) => {
   }
 });
 
+app.delete('/api/inventory/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await run('DELETE FROM inventory WHERE itemId = ?', [id]);
+    res.json({ success: true, message: `Material ${id} deleted` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Helper for core inventory deduction & order progress logging
 async function processBatchLogDeductions(log) {
   const batchId = log.batchId || log.id || ('LOG-' + Date.now());
@@ -850,6 +860,31 @@ async function processBatchLogDeductions(log) {
           'UPDATE inventory SET stock = MAX(0, stock - ?), lastUpdated = ? WHERE itemId = ?',
           [totalDeducted, Date.now(), ing.ingredientId]
         );
+      }
+    }
+    // Update the targeted order's completed batch count for grinder runs
+    const targetOrder = log.orderId 
+      ? await get("SELECT * FROM orders WHERE id = ?", [log.orderId])
+      : await get("SELECT * FROM orders WHERE (productNameEnglish = ? OR productNameHindi = ?) AND (status = 'ACTIVE' OR status = 'In Progress' OR status = 'Pending') LIMIT 1", [productNameEnglish, productNameHindi]);
+
+    if (targetOrder) {
+      const newCompleted = (targetOrder.completedBatches || 0) + batchesMultiplier;
+      let newStatus = targetOrder.status;
+      if (newCompleted >= targetOrder.totalBatchesScheduled) {
+        newStatus = 'COMPLETED';
+      } else if (newStatus === 'PENDING' || newStatus === 'Pending') {
+        newStatus = 'In Progress';
+      }
+      await run(
+        'UPDATE orders SET completedBatches = ?, status = ? WHERE id = ?',
+        [newCompleted, newStatus, targetOrder.id]
+      );
+
+      if (newStatus === 'COMPLETED') {
+        const nextPending = await get("SELECT * FROM orders WHERE status = 'PENDING' ORDER BY queueOrder ASC, timestamp ASC LIMIT 1");
+        if (nextPending) {
+          await run("UPDATE orders SET status = 'ACTIVE' WHERE id = ?", [nextPending.id]);
+        }
       }
     }
     return { success: true, stage: 'grinder', batchesPulverized: batchesMultiplier };

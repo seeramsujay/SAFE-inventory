@@ -289,21 +289,21 @@ fun WorkerTimerScreen(
                         }
                     }
 
-                    // ── UPCOMING BATCHES QUEUE (आगामी बैच कतार) ──────────────────
+                    // ── UPCOMING PRODUCTS / ORDERS QUEUE (आगामी उत्पाद कतार) ──────────────────
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "आगामी बैच (UPCOMING):",
+                            text = "उत्पाद कतार (ORDER QUEUE):",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
                             fontFamily = FontFamily.Monospace,
                             color = Color(0xFF1A1A1A)
                         )
                         Text(
-                            text = "${upcomingBatches.size} queued",
+                            text = "${upcomingBatches.size} products",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
@@ -312,7 +312,7 @@ fun WorkerTimerScreen(
                     }
 
                     Text(
-                        text = "बैच चुनें और रेसिपी देखें (Select to load recipe)",
+                        text = "उत्पाद चुनें और रेसिपी देखें (Select product tile to load)",
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color.Gray
@@ -325,7 +325,7 @@ fun WorkerTimerScreen(
                             .border(1.5.dp, Color(0xFFD8DADC))
                             .background(Color(0xFFFAFAFA))
                             .padding(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         if (upcomingBatches.isEmpty()) {
                             item {
@@ -336,7 +336,7 @@ fun WorkerTimerScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "कतार खाली है / No upcoming batches",
+                                        text = "कतार खाली है / No queued products",
                                         fontSize = 11.sp,
                                         color = Color.Gray,
                                         fontFamily = FontFamily.Monospace
@@ -344,9 +344,13 @@ fun WorkerTimerScreen(
                                 }
                             }
                         } else {
-                            items(upcomingBatches) { bItem ->
-                                val isSel = bItem.isSelected
-                                val itemColor = parseHexColor(bItem.colorHex, Color(0xFF00875A))
+                            items(upcomingBatches) { oItem ->
+                                val isSel = oItem.isSelected
+                                val itemColor = parseHexColor(oItem.colorHex, Color(0xFF00875A))
+                                val progressFraction = if (oItem.totalBatchesInOrder > 0) {
+                                    oItem.completedBatches.toFloat() / oItem.totalBatchesInOrder.toFloat()
+                                } else 0f
+                                
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -356,9 +360,9 @@ fun WorkerTimerScreen(
                                             color = if (isSel) itemColor else itemColor.copy(alpha = 0.4f)
                                         )
                                         .clickable {
-                                            viewModel.selectBatch(bItem)
+                                            viewModel.selectOrder(oItem)
                                         }
-                                        .padding(8.dp)
+                                        .padding(10.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -371,12 +375,12 @@ fun WorkerTimerScreen(
                                         ) {
                                             Box(
                                                 modifier = Modifier
-                                                    .size(10.dp)
+                                                    .size(12.dp)
                                                     .background(itemColor)
                                             )
                                             Text(
-                                                text = "BATCH #${bItem.batchNumber} / ${bItem.totalBatchesInOrder}",
-                                                fontSize = 10.sp,
+                                                text = if (isSel) "BATCH ${oItem.currentBatchNumber} OF ${oItem.totalBatchesInOrder}" else "${oItem.totalBatchesInOrder} BATCHES",
+                                                fontSize = 11.sp,
                                                 fontWeight = FontWeight.Black,
                                                 fontFamily = FontFamily.Monospace,
                                                 color = if (isSel) Color.Black else Color.DarkGray
@@ -385,10 +389,10 @@ fun WorkerTimerScreen(
                                         Box(
                                             modifier = Modifier
                                                 .background(if (isSel) itemColor else Color(0xFFE2E8F0))
-                                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
                                         ) {
                                             Text(
-                                                text = if (isSel) "SELECTED" else "UPCOMING",
+                                                text = if (isSel) "ACTIVE" else "QUEUED",
                                                 color = if (isSel) Color.White else Color(0xFF475569),
                                                 fontSize = 8.sp,
                                                 fontWeight = FontWeight.Black,
@@ -398,24 +402,59 @@ fun WorkerTimerScreen(
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = bItem.productNameHindi,
-                                        fontSize = 13.sp,
+                                        text = oItem.productNameHindi,
+                                        fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.Black
                                     )
                                     Text(
-                                        text = bItem.productNameEnglish.uppercase(),
+                                        text = oItem.productNameEnglish.uppercase(),
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Medium,
                                         fontFamily = FontFamily.Monospace,
                                         color = Color.Gray
                                     )
-                                    Spacer(modifier = Modifier.height(2.dp))
+                                    
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    
+                                    // Visual Batch Progress Bar
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = "प्रगति (Progress): ${oItem.completedBatches}/${oItem.totalBatchesInOrder} Batches",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = Color(0xFF475569)
+                                            )
+                                            Text(
+                                                text = "${(progressFraction * 100).toInt()}%",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Black,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = itemColor
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(3.dp))
+                                        LinearProgressIndicator(
+                                            progress = progressFraction,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(5.dp),
+                                            color = itemColor,
+                                            trackColor = Color(0xFFE2E8F0)
+                                        )
+                                    }
+                                    
+                                    Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "Order: ${bItem.orderId}",
-                                        fontSize = 9.sp,
+                                        text = "Order ID: ${oItem.orderId}",
+                                        fontSize = 8.sp,
                                         fontFamily = FontFamily.Monospace,
-                                        color = Color(0xFF64748B)
+                                        color = Color(0xFF94A3B8)
                                     )
                                 }
                             }
