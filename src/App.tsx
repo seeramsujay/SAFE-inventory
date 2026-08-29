@@ -377,6 +377,17 @@ export default function App() {
   const [isHindiNameManuallyEdited, setIsHindiNameManuallyEdited] = useState(false);
   const [isMaterialHindiNameManuallyEdited, setIsMaterialHindiNameManuallyEdited] = useState(false);
 
+  // Lock background body scroll when modals are open
+  useEffect(() => {
+    if (showAddProductModal || showAddMaterialModal) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [showAddProductModal, showAddMaterialModal]);
+
   // Translation helper call to server
   const translateText = async (text: string): Promise<string> => {
     if (!text) return '';
@@ -3431,9 +3442,14 @@ export default function App() {
 
       {/* 4. DIALOG ADD/EDIT RECIPE MIXTURE */}
       {showAddProductModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 select-none">
-          <div className="bg-industrial-card border-2 border-industrial-accent rounded-lg max-w-md w-full overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <div className="bg-[#0B0D10] border-b border-industrial-border p-4 flex justify-between items-center bg-gray-950">
+        <div 
+          className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 select-none overflow-y-auto"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowAddProductModal(false);
+          }}
+        >
+          <div className="bg-industrial-card border-2 border-industrial-accent rounded-lg max-w-md w-full max-h-[90vh] flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-[#0B0D10] border-b border-industrial-border p-4 flex justify-between items-center bg-gray-950 shrink-0">
               <h3 className="text-sm font-bold font-mono tracking-widest text-[#00F0FF] uppercase">
                 {editingProduct ? 'EDIT MIXTURE RECIPE FORMULA' : 'REGISTER NEW MIXTURE RECIPE'}
               </h3>
@@ -3446,7 +3462,7 @@ export default function App() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveProduct} className="p-6 flex flex-col gap-4 font-mono text-xs">
+            <form onSubmit={handleSaveProduct} className="p-6 flex flex-col gap-4 font-mono text-xs overflow-y-auto">
               
               <div className="flex flex-col gap-1.5">
                 <label className="text-gray-400 uppercase tracking-wide">MIXTURE SPECIFICATION CODE ID:</label>
@@ -3595,7 +3611,7 @@ export default function App() {
 
               <button
                 type="submit"
-                className="bg-industrial-accent hover:bg-cyan-500 font-bold font-mono text-black py-2.5 rounded transition uppercase tracking-widest text-xs mt-3 shadow-md shadow-industrial-accent/25"
+                className="bg-industrial-accent hover:bg-cyan-500 font-bold font-mono text-black py-2.5 rounded transition uppercase tracking-widest text-xs mt-3 shadow-md shadow-industrial-accent/25 shrink-0"
               >
                 {editingProduct ? 'Update Recipe Record' : 'Register Formula Record'}
               </button>
@@ -3607,9 +3623,17 @@ export default function App() {
 
       {/* DIALOG ADD/EDIT RAW MATERIAL */}
       {showAddMaterialModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 select-none">
-          <div className="bg-industrial-card border-2 border-industrial-accent rounded-lg max-w-md w-full overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <div className="bg-[#0B0D10] border-b border-industrial-border p-4 flex justify-between items-center bg-gray-950">
+        <div 
+          className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 select-none overflow-y-auto"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowAddMaterialModal(false);
+              setEditingMaterial(null);
+            }
+          }}
+        >
+          <div className="bg-industrial-card border-2 border-industrial-accent rounded-lg max-w-md w-full max-h-[90vh] flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-[#0B0D10] border-b border-industrial-border p-4 flex justify-between items-center bg-gray-950 shrink-0">
               <h3 className="text-sm font-bold font-mono tracking-widest text-[#00F0FF] uppercase">
                 {editingMaterial ? 'EDIT RAW MATERIAL DETAILS' : 'REGISTER NEW RAW MATERIAL'}
               </h3>
@@ -3625,7 +3649,7 @@ export default function App() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveMaterial} className="p-6 flex flex-col gap-4 font-mono text-xs text-left animate-in fade-in zoom-in-95 duration-200">
+            <form onSubmit={handleSaveMaterial} className="p-6 flex flex-col gap-4 font-mono text-xs text-left animate-in fade-in zoom-in-95 duration-200 overflow-y-auto">
               
               <div className="flex flex-col gap-1.5">
                 <label className="text-gray-400 uppercase tracking-wide">MATERIAL ID CODE (e.g. ING-006):</label>
@@ -3700,7 +3724,7 @@ export default function App() {
 
               <button
                 type="submit"
-                className="bg-industrial-accent hover:bg-cyan-500 font-bold font-mono text-black py-2.5 rounded transition uppercase tracking-widest text-xs mt-3 shadow-md shadow-industrial-accent/25"
+                className="bg-industrial-accent hover:bg-cyan-500 font-bold font-mono text-black py-2.5 rounded transition uppercase tracking-widest text-xs mt-3 shadow-md shadow-industrial-accent/25 shrink-0"
               >
                 {editingMaterial ? 'UPDATE RAW MATERIAL' : 'REGISTER RAW MATERIAL'}
               </button>
