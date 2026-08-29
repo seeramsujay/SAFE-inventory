@@ -3489,10 +3489,10 @@ export default function App() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-gray-400 uppercase tracking-wide">HINDI LAUNCHER LABEL TRANSLATION:</label>
+                <label className="text-gray-400 uppercase tracking-wide">HINDI SCRIPT TRANSLITERATION:</label>
                 <input
                   type="text"
-                  placeholder="e.g. मानक मिश्रण (OPTIONAL - AUTO TRANSLATES)"
+                  placeholder="e.g. मानक मिश्रण (OPTIONAL - AUTO TRANSLITERATES)"
                   value={newProductName}
                   onChange={(e) => {
                     setNewProductName(e.target.value);
@@ -3676,10 +3676,10 @@ export default function App() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-gray-400 uppercase tracking-wide">HINDI LABEL TRANSLATION:</label>
+                <label className="text-gray-400 uppercase tracking-wide">HINDI SCRIPT TRANSLITERATION:</label>
                 <input
                   type="text"
-                  placeholder="e.g. वेनिला एक्सट्रैक्ट (OPTIONAL - AUTO TRANSLATES)"
+                  placeholder="e.g. वेनिला एक्सट्रैक्ट (OPTIONAL - AUTO TRANSLITERATES)"
                   value={newMaterialHindiName}
                   onChange={(e) => {
                     setNewMaterialHindiName(e.target.value);

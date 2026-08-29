@@ -5,23 +5,28 @@ import { fileURLToPath } from 'url';
 import { run, get, all, initDb, seedData } from './db.js';
 import os from 'os';
 
-// Translation helper using Google's free translation API
-async function translateToHindi(text) {
-  if (!text) return '';
+// Transliteration helper using Google InputTools (phonetic transliteration into Devanagari script)
+async function transliterateToHindi(text) {
+  if (!text || typeof text !== 'string') return '';
+  const trimmed = text.trim();
+  if (!trimmed) return '';
   try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=hi&dt=t&q=${encodeURIComponent(text)}`;
+    const url = `https://inputtools.google.com/request?text=${encodeURIComponent(trimmed)}&itc=hi-t-i0-und&num=1&cp=0&cs=1&ie=utf-8&oe=utf-8&app=demopage`;
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
-      if (data && data[0] && data[0][0] && data[0][0][0]) {
-        return data[0][0][0];
+      if (data && data[0] === 'SUCCESS' && data[1] && data[1][0] && data[1][0][1] && data[1][0][1][0]) {
+        return data[1][0][1][0];
       }
     }
   } catch (err) {
-    console.error("Translation error:", err);
+    console.error("Transliteration error:", err);
   }
-  return text; // Fallback to English input
+  return trimmed; // Fallback to original input
 }
+
+// Alias for existing callers
+const translateToHindi = transliterateToHindi;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
