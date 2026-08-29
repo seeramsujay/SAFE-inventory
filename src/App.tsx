@@ -581,7 +581,7 @@ export default function App() {
       const res = await customFetch('/api/products');
       if (res.ok) {
         const data = await res.json();
-        if (data && data.length > 0) {
+        if (data && Array.isArray(data)) {
           const mapped = data.map((p: any) => ({
             id: p.id,
             name: p.name,
@@ -916,17 +916,19 @@ export default function App() {
   // Delete product
   const handleDeleteProduct = async (pId: string) => {
     if (window.confirm(`CONFIRM: Delete mixture recipe ${pId}?`)) {
-      const product = products.find(p => p.id === pId);
-      if (!product) return;
+      // Optimistic update
+      setProducts(prev => prev.filter(p => p.id !== pId));
       try {
-        await customFetch('/api/products', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...product, isActive: false, mixtureRatios: product.ingredients })
+        const res = await customFetch(`/api/products/${encodeURIComponent(pId)}`, {
+          method: 'DELETE'
         });
-        fetchProducts();
+        if (res.ok) {
+          fetchProducts();
+          fetchInventory();
+        }
       } catch (err) {
         console.error("Failed to delete product:", err);
+        fetchProducts();
       }
     }
   };

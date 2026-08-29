@@ -579,6 +579,18 @@ app.post('/api/products', async (req, res) => {
   }
 });
 
+app.delete('/api/products/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await run('DELETE FROM products WHERE id = ?', [id]);
+    const finishedProdId = id.replace('PRD-', 'FIN-');
+    await run('DELETE FROM inventory WHERE itemId = ?', [finishedProdId]);
+    res.json({ success: true, message: `Product ${id} deleted` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 3. Orders endpoints
 app.get('/api/orders', async (req, res) => {
   try {
