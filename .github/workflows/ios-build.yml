@@ -1,0 +1,50 @@
+name: Build iOS Applications
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-ios:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app || true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 'latest'
+
+      - name: Install Dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build Web App & Sync Capacitor iOS
+        run: |
+          pnpm build
+          pnpm cap sync ios
+
+      - name: Build Capacitor iOS App
+        run: |
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App -destination 'generic/platform=iOS Simulator' IPHONEOS_DEPLOYMENT_TARGET=16.0 CODE_SIGNING_ALLOWED=NO clean build
+
+      - name: Build Native Industrial Worker iOS App
+        run: |
+          cd ios/IndustrialWorker
+          xcodebuild -scheme IndustrialWorker -destination 'generic/platform=iOS Simulator' build
+
+      - name: Build Native Admin Mobile iOS App
+        run: |
+          cd ios/AdminMobile
+          xcodebuild -scheme AdminMobile -destination 'generic/platform=iOS Simulator' build

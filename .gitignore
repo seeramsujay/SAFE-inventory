@@ -30,8 +30,17 @@ dist-ssr/
 
 # Local Persistent Database Files
 api_logs.json
-nexus.db
+nexus.db*
 uv.lock
+
+# iOS & Xcode
+ios/App/Pods/
+ios/App/App/public/
+ios/**/.build/
+ios/**/.swiftpm/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad
 
 # System Files
 .DS_Store

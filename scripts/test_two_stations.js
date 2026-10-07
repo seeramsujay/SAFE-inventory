@@ -464,8 +464,9 @@ async function runTests() {
     logFail(`Unexpected error during tests: ${err.message}\n${err.stack}`);
   } finally {
     if (serverProcess) {
-      serverProcess.kill('SIGTERM');
+      try { serverProcess.kill('SIGKILL'); } catch (e) {}
     }
+    process.exit(0);
   }
 }
 
