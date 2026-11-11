@@ -1,7 +1,6 @@
 {
   "name": "industrial-nexus-web",
   "private": true,
-  "packageManager": "pnpm@12.9.1",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
