@@ -1,4 +1,22 @@
-# Industrial Nexus — Cyber-Physical Manufacturing Suite
+<p align="center">
+  <img src="assets/logo.svg" alt="Industrial Nexus Logo" width="130" height="130" />
+</p>
+
+<h1 align="center">Industrial Nexus</h1>
+
+<p align="center">
+  <strong>Self-Hosted, Local-First Cyber-Physical Manufacturing Suite (Android Tablet + Web Control Room + Express SQLite)</strong>
+</p>
+
+<p align="center">
+  <a href="https://safe-inventory.vercel.app"><img src="https://img.shields.io/badge/Demo-safe--inventory.vercel.app-10b981?style=flat-square" alt="Demo" /></a>
+  <img src="https://img.shields.io/badge/Architecture-Local--First%20Offline-brightgreen?style=flat-square" alt="Architecture" />
+  <img src="https://img.shields.io/badge/Clients-Android%20Tablet%20%7C%20React%20Vite-blue?style=flat-square" alt="Clients" />
+  <img src="https://img.shields.io/badge/Status-Maintained-success?style=flat-square" alt="Status" />
+  <img src="https://img.shields.io/badge/License-Protected-blue?style=flat-square" alt="License" />
+</p>
+
+---
 
 Industrial Nexus is a **self-hosted, local-first cyber-physical manufacturing system** that bridges factory floor operations with administrative control. It consists of three integrated subsystems:
 
